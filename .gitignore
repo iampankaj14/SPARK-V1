@@ -1,0 +1,19 @@
+# ESP-IDF
+firmware/build/
+firmware/managed_components/
+firmware/dependencies.lock
+firmware/sdkconfig
+firmware/.ninja_deps
+firmware/.ninja_log
+
+# VSCode
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# MacOS
+.DS_Store
