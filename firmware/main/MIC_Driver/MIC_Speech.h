@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdbool.h>
+#include <stdint.h>
 #include "esp_afe_sr_iface.h"
 #include "esp_process_sdkconfig.h"
 #include "model_path.h"

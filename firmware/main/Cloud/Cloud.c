@@ -94,7 +94,7 @@ esp_err_t Cloud_Start(void)
         .subprotocol = "graphql-ws", // standard phoenix protocol compatibility
         .crt_bundle_attach = esp_crt_bundle_attach,
         .buffer_size = 2048, // reduced buffer size to 2KB to save memory
-        .task_stack = 4096 // restored task stack size to 4KB to prevent stack overflow
+        .task_stack = 8192 // increased to 8KB because mbedTLS handshake requires large stack
     };
 
     s_ws_client = esp_websocket_client_init(&ws_cfg);

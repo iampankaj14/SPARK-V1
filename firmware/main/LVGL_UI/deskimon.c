@@ -39,14 +39,16 @@ typedef enum {
     EYE_STATE_SKEPTICAL,
     EYE_STATE_DIZZY,
     EYE_STATE_LOVE,
+    EYE_STATE_BLACK_HOLE,
     EYE_STATE_MAX
 } eye_state_t;
 
-static eye_state_t current_state = EYE_STATE_BOOT;
+static eye_state_t current_state = 0; // EYE_STATE_BOOT
 
 
 
 static uint32_t s_eye_color_hex = 0x1AC8DB;
+static uint32_t s_default_eye_color = 0x1AC8DB;
 static volatile bool s_eye_color_pending = false;
 static volatile eye_state_t s_pending_eye_state = EYE_STATE_MAX;
 static volatile bool s_eye_state_pending = false;
@@ -102,9 +104,6 @@ static lv_obj_t * ignore_hemi_r;
 static lv_obj_t * insec_cover_l;
 static lv_obj_t * insec_cover_r;
 
-static lv_obj_t * skeptical_mouth;
-static lv_obj_t * confused_mouth;
-static lv_obj_t * kiss_mouth;
 
 static lv_timer_t * logic_timer = NULL;
 static uint32_t state_time = 0;
@@ -115,28 +114,7 @@ static float last_accel_x = 0, last_accel_y = 0, last_accel_z = 0;
 static int tap_count = 0;
 static uint32_t last_tap_time = 0;
 
-// ANIMATION HELPERS
-static void set_width_cb(void * var, int32_t v) { lv_obj_set_width((lv_obj_t *)var, v); }
-static void set_height_cb(void * var, int32_t v) { lv_obj_set_height((lv_obj_t *)var, v); }
-static void set_angle_cb(void * var, int32_t v) { lv_obj_set_style_transform_angle((lv_obj_t *)var, v, 0); }
-static void set_tx_cb(void * var, int32_t v) { lv_obj_set_style_translate_x((lv_obj_t *)var, v, 0); }
-static void set_ty_cb(void * var, int32_t v) { lv_obj_set_style_translate_y((lv_obj_t *)var, v, 0); }
-
-static void anim_prop(lv_obj_t * obj, lv_anim_exec_xcb_t cb, int32_t start, int32_t end, uint32_t time) {
-    lv_anim_del(obj, cb);
-    if (time == 0) {
-        cb(obj, end);
-        return;
-    }
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, obj);
-    lv_anim_set_values(&a, start, end);
-    lv_anim_set_time(&a, time);
-    lv_anim_set_exec_cb(&a, cb);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-    lv_anim_start(&a);
-}
+// Replaced local animation helpers with Spark_Anim_Prop from spark_animation.h
 
 // EXACT MASKING ENGINE FOR INSECURE FACE
 static void happy_mouth_mask_event_cb(lv_event_t * e) {
@@ -234,22 +212,33 @@ static void eye_container_event_cb(lv_event_t * e) {
     }
 }
 
-static void animate_eye_base(lv_obj_t * eye, int32_t w, int32_t h, int32_t angle, int32_t tx, int32_t ty, uint32_t time) {
-    anim_prop(eye, set_width_cb, lv_obj_get_width(eye), w, time);
-    anim_prop(eye, set_height_cb, lv_obj_get_height(eye), h, time);
-    anim_prop(eye, set_angle_cb, lv_obj_get_style_transform_angle(eye, 0), angle, time);
-    anim_prop(eye, set_tx_cb, lv_obj_get_style_translate_x(eye, 0), tx, time);
-    anim_prop(eye, set_ty_cb, lv_obj_get_style_translate_y(eye, 0), ty, time);
-}
+// animate_eye_base removed, using Spark_Anim_AnimateEyeBase instead
 
 
 
 
 static void set_eyes_state(eye_state_t new_state) {
+    // Delay loading complex faces for the first 3.5 seconds to save RAM for Speech Model Init
+    // (Exempt SOLAR_SYSTEM and PORTAL_TRAVEL so the user can enjoy them directly on boot)
+    if (esp_timer_get_time() < 3500000 && new_state != 0 && new_state != (eye_state_t)SPARK_FACE_SOLAR_SYSTEM && new_state != (eye_state_t)SPARK_FACE_PORTAL_TRAVEL) {
+        new_state = 0; // EYE_STATE_BOOT
+    }
     if (new_state == current_state) return;
     current_state = new_state;
     state_time = 0;
     Spark_Face_Set((spark_face_t)new_state);
+    
+    if (new_state == EYE_STATE_ANGRY) {
+        if (s_eye_color_hex != 0xFF0000) {
+            s_eye_color_hex = 0xFF0000;
+            s_eye_color_pending = true;
+        }
+    } else {
+        if (s_eye_color_hex != s_default_eye_color) {
+            s_eye_color_hex = s_default_eye_color;
+            s_eye_color_pending = true;
+        }
+    }
 }
 
 static void logic_timer_cb(lv_timer_t * t)
@@ -428,64 +417,66 @@ static void logic_timer_cb(lv_timer_t * t)
         if (ignore_line_r) lv_obj_set_style_line_color(ignore_line_r, color, 0);
     }
 
+    // BLACK_HOLE animation logic removed
     if (current_state == EYE_STATE_EYES_CLOSED) {
         if (state_time > 0 && state_time % 200 == 0) {
             int offset_x = (rand() % 16) - 8; // Rapid X shaking
             int offset_y = (rand() % 10) - 5; // Rapid Y shaking
-            anim_prop(eye_closed_l, set_tx_cb, lv_obj_get_style_translate_x(eye_closed_l, 0), offset_x, 100);
-            anim_prop(eye_closed_l, set_ty_cb, lv_obj_get_style_translate_y(eye_closed_l, 0), offset_y, 100);
-            anim_prop(eye_closed_r, set_tx_cb, lv_obj_get_style_translate_x(eye_closed_r, 0), offset_x, 100);
-            anim_prop(eye_closed_r, set_ty_cb, lv_obj_get_style_translate_y(eye_closed_r, 0), offset_y, 100);
+            Spark_Anim_Prop(eye_closed_l, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(eye_closed_l, 0), offset_x, 100);
+            Spark_Anim_Prop(eye_closed_l, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(eye_closed_l, 0), offset_y, 100);
+            Spark_Anim_Prop(eye_closed_r, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(eye_closed_r, 0), offset_x, 100);
+            Spark_Anim_Prop(eye_closed_r, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(eye_closed_r, 0), offset_y, 100);
         }
     }
 
     if (current_state == EYE_STATE_LAUGH) {
         if (state_time > 500 && state_time % 300 == 0) {
             int target_h = (state_time % 600 == 0) ? 75 : 55;
-            anim_prop(laugh_mouth, set_height_cb, lv_obj_get_height(laugh_mouth), target_h, 150);
+            Spark_Anim_Prop(laugh_mouth, Spark_Anim_SetHeightCb, lv_obj_get_height(laugh_mouth), target_h, 150);
             int mouth_ty = (state_time % 600 == 0) ? 4 : -4;
-            anim_prop(laugh_mouth, set_ty_cb, lv_obj_get_style_translate_y(laugh_mouth, 0), mouth_ty, 150);
+            Spark_Anim_Prop(laugh_mouth, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(laugh_mouth, 0), mouth_ty, 150);
         }
     }
 
-    if (current_state == EYE_STATE_INSECURE || current_state == EYE_STATE_INTEREST || current_state == EYE_STATE_IGNORE || current_state == EYE_STATE_HAPPY_CRY || current_state == EYE_STATE_CRYING_MOUTH) {
+    if (current_state == EYE_STATE_INSECURE || current_state == EYE_STATE_INTEREST || current_state == EYE_STATE_IGNORE || current_state == EYE_STATE_HAPPY_CRY || current_state == EYE_STATE_CRYING_MOUTH || current_state == EYE_STATE_CRY) {
         if (state_time > 0 && state_time % 800 == 0) {
             int offset = (rand() % 30) - 15;
             if (current_state == EYE_STATE_INSECURE) {
-                anim_prop(insecure_eye_container_l, set_tx_cb, lv_obj_get_style_translate_x(insecure_eye_container_l, 0), offset, 300);
-                anim_prop(insec_cover_l, set_tx_cb, lv_obj_get_style_translate_x(insec_cover_l, 0), offset, 300);
-                anim_prop(insecure_eye_container_r, set_tx_cb, lv_obj_get_style_translate_x(insecure_eye_container_r, 0), offset, 300);
-                anim_prop(insec_cover_r, set_tx_cb, lv_obj_get_style_translate_x(insec_cover_r, 0), offset, 300);
-                anim_prop(insecure_mouth, set_tx_cb, lv_obj_get_style_translate_x(insecure_mouth, 0), offset / 2, 300);
+                Spark_Anim_Prop(insecure_eye_container_l, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(insecure_eye_container_l, 0), offset, 300);
+                Spark_Anim_Prop(insec_cover_l, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(insec_cover_l, 0), offset, 300);
+                Spark_Anim_Prop(insecure_eye_container_r, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(insecure_eye_container_r, 0), offset, 300);
+                Spark_Anim_Prop(insec_cover_r, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(insec_cover_r, 0), offset, 300);
+                Spark_Anim_Prop(insecure_mouth, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(insecure_mouth, 0), offset / 2, 300);
             } else if (current_state == EYE_STATE_INTEREST) {
-                anim_prop(insecure_eye_container_l, set_tx_cb, lv_obj_get_style_translate_x(insecure_eye_container_l, 0), offset, 300);
-                anim_prop(insec_cover_l, set_tx_cb, lv_obj_get_style_translate_x(insec_cover_l, 0), offset, 300);
-                anim_prop(insecure_eye_container_r, set_tx_cb, lv_obj_get_style_translate_x(insecure_eye_container_r, 0), offset, 300);
-                anim_prop(insec_cover_r, set_tx_cb, lv_obj_get_style_translate_x(insec_cover_r, 0), offset, 300);
-                anim_prop(interest_mouth_l, set_tx_cb, lv_obj_get_style_translate_x(interest_mouth_l, 0), offset / 2, 300);
-                anim_prop(interest_mouth_r, set_tx_cb, lv_obj_get_style_translate_x(interest_mouth_r, 0), offset / 2, 300);
+                Spark_Anim_Prop(insecure_eye_container_l, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(insecure_eye_container_l, 0), offset, 300);
+                Spark_Anim_Prop(insec_cover_l, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(insec_cover_l, 0), offset, 300);
+                Spark_Anim_Prop(insecure_eye_container_r, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(insecure_eye_container_r, 0), offset, 300);
+                Spark_Anim_Prop(insec_cover_r, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(insec_cover_r, 0), offset, 300);
+                Spark_Anim_Prop(interest_mouth_l, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(interest_mouth_l, 0), offset / 2, 300);
+                Spark_Anim_Prop(interest_mouth_r, Spark_Anim_SetTxCb, lv_obj_get_style_translate_x(interest_mouth_r, 0), offset / 2, 300);
             } else if (current_state == EYE_STATE_IGNORE) {
                 int ty = (rand() % 15); // Slight sighing / bobbing motion
-                anim_prop(ignore_line_l, set_ty_cb, lv_obj_get_style_translate_y(ignore_line_l, 0), ty, 400);
-                anim_prop(ignore_hemi_l, set_ty_cb, lv_obj_get_style_translate_y(ignore_hemi_l, 0), ty, 400);
-                anim_prop(ignore_line_r, set_ty_cb, lv_obj_get_style_translate_y(ignore_line_r, 0), ty, 400);
-                anim_prop(ignore_hemi_r, set_ty_cb, lv_obj_get_style_translate_y(ignore_hemi_r, 0), ty, 400);
-            } else if (current_state == EYE_STATE_HAPPY_CRY || current_state == EYE_STATE_CRYING_MOUTH) {
+                Spark_Anim_Prop(ignore_line_l, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(ignore_line_l, 0), ty, 400);
+                Spark_Anim_Prop(ignore_hemi_l, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(ignore_hemi_l, 0), ty, 400);
+                Spark_Anim_Prop(ignore_line_r, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(ignore_line_r, 0), ty, 400);
+                Spark_Anim_Prop(ignore_hemi_r, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(ignore_hemi_r, 0), ty, 400);
+            } else if (current_state == EYE_STATE_HAPPY_CRY || current_state == EYE_STATE_CRYING_MOUTH || current_state == EYE_STATE_CRY) {
                 int max_len = 70 + (rand() % 40); // 70 to 110
-                anim_prop(tear_l, set_height_cb, 40, max_len, 400);
-                anim_prop(tear_l, set_ty_cb, 20, max_len/2, 400);
-                anim_prop(tear_r, set_height_cb, 40, max_len, 400);
-                anim_prop(tear_r, set_ty_cb, 20, max_len/2, 400);
+                Spark_Anim_Prop(tear_l, Spark_Anim_SetHeightCb, 40, max_len, 400);
+                Spark_Anim_Prop(tear_l, Spark_Anim_SetTyCb, 20, max_len/2, 400);
+                Spark_Anim_Prop(tear_r, Spark_Anim_SetHeightCb, 40, max_len, 400);
+                Spark_Anim_Prop(tear_r, Spark_Anim_SetTyCb, 20, max_len/2, 400);
             }
         } else if (state_time > 0 && state_time % 800 == 400) {
-            if (current_state == EYE_STATE_HAPPY_CRY || current_state == EYE_STATE_CRYING_MOUTH) {
-                anim_prop(tear_l, set_height_cb, lv_obj_get_height(tear_l), 40, 400);
-                anim_prop(tear_l, set_ty_cb, lv_obj_get_style_translate_y(tear_l, 0), 20, 400);
-                anim_prop(tear_r, set_height_cb, lv_obj_get_height(tear_r), 40, 400);
-                anim_prop(tear_r, set_ty_cb, lv_obj_get_style_translate_y(tear_r, 0), 20, 400);
+            if (current_state == EYE_STATE_HAPPY_CRY || current_state == EYE_STATE_CRYING_MOUTH || current_state == EYE_STATE_CRY) {
+                Spark_Anim_Prop(tear_l, Spark_Anim_SetHeightCb, lv_obj_get_height(tear_l), 40, 400);
+                Spark_Anim_Prop(tear_l, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(tear_l, 0), 20, 400);
+                Spark_Anim_Prop(tear_r, Spark_Anim_SetHeightCb, lv_obj_get_height(tear_r), 40, 400);
+                Spark_Anim_Prop(tear_r, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(tear_r, 0), 20, 400);
             }
         }
     }
+
 
     if (current_state == EYE_STATE_BOOT) {
         if (state_time >= 1000) {
@@ -508,7 +499,11 @@ static void logic_timer_cb(lv_timer_t * t)
     bool shaking = (move_amt > 1.5f);
     bool shaking_x = (dx*dx > 1.0f); 
 
-    if (tilted_up) {
+    // Skip IMU interruptions if we are in a special cinematic face like SOLAR_SYSTEM or PORTAL_TRAVEL
+    if (current_state == (eye_state_t)SPARK_FACE_SOLAR_SYSTEM || current_state == (eye_state_t)SPARK_FACE_PORTAL_TRAVEL) {
+        // Do not interrupt the cinematic face with tilt/shake
+    }
+    else if (tilted_up) {
         idle_time = 0;
         if (shaking) {
             set_eyes_state(EYE_STATE_CRYING_MOUTH);
@@ -536,14 +531,14 @@ static void logic_timer_cb(lv_timer_t * t)
     }
 
     if (current_state == EYE_STATE_NORMAL) {
-        if (idle_time > 7000) {
+        if (idle_time > 20000) {
             set_eyes_state(EYE_STATE_BORING);
         } else if (state_time >= next_look_time) {
             int32_t rx = (rand() % 100) - 50;
             int32_t ry = (rand() % 60) - 30;
             uint32_t speed = (rand() % 400) + 200;
-            animate_eye_base(eye_container_l, 100, 165, 0, rx, ry, speed);
-            animate_eye_base(eye_container_r, 100, 165, 0, rx, ry, speed);
+            Spark_Anim_AnimateEyeBase(eye_container_l, 100, 165, 0, rx, ry, speed);
+            Spark_Anim_AnimateEyeBase(eye_container_r, 100, 165, 0, rx, ry, speed);
             next_look_time = state_time + speed + (rand() % 3000) + 1000;
         }
     }
@@ -551,7 +546,7 @@ static void logic_timer_cb(lv_timer_t * t)
         if (state_time > 4500) set_eyes_state(EYE_STATE_BORED);
     }
     else if (current_state == EYE_STATE_BORED) {
-        if (idle_time > 15000) set_eyes_state(EYE_STATE_SLEEP);
+        if (idle_time > 60000) set_eyes_state(EYE_STATE_SLEEP);
     }
     else if (current_state == EYE_STATE_SLEEP) {
         if (state_time > 10000) set_eyes_state(EYE_STATE_EYES_CLOSED);
@@ -577,6 +572,7 @@ static void logic_timer_cb(lv_timer_t * t)
             else if (!shaking && tilted_up) set_eyes_state(EYE_STATE_CRY);
         }
     }
+
 }
 
 static void screen_event_cb(lv_event_t * e) {
@@ -660,12 +656,15 @@ static void create_eye_masks(lv_obj_t * eye, lv_obj_t ** top_mask, lv_obj_t ** m
     lv_obj_clear_flag(*moon_mask, LV_OBJ_FLAG_SCROLLABLE);
 }
 
+
+
 void Deskimon_Start(void)
 {
     #include "../Provisioning/Provisioning.h"
     const device_config_t *cfg = Provisioning_GetConfig();
     if (cfg && cfg->eye_color != 0) {
         s_eye_color_hex = cfg->eye_color;
+        s_default_eye_color = cfg->eye_color;
     }
     s_eye_color_pending = true;
 
@@ -936,7 +935,7 @@ void Deskimon_Start(void)
     lv_obj_remove_style(mouth_arc_l, NULL, LV_PART_KNOB);
     lv_obj_set_style_arc_width(mouth_arc_l, 8, LV_PART_MAIN);
     lv_obj_set_style_arc_color(mouth_arc_l, lv_color_hex(s_eye_color_hex), LV_PART_MAIN);
-    lv_obj_align(mouth_arc_l, LV_ALIGN_CENTER, -20, 60);
+    lv_obj_align(mouth_arc_l, LV_ALIGN_CENTER, -20, 105);
     lv_obj_set_style_opa(mouth_arc_l, 0, 0);
 
     mouth_arc_r = lv_arc_create(scr);
@@ -946,7 +945,7 @@ void Deskimon_Start(void)
     lv_obj_remove_style(mouth_arc_r, NULL, LV_PART_KNOB);
     lv_obj_set_style_arc_width(mouth_arc_r, 8, LV_PART_MAIN);
     lv_obj_set_style_arc_color(mouth_arc_r, lv_color_hex(s_eye_color_hex), LV_PART_MAIN);
-    lv_obj_align(mouth_arc_r, LV_ALIGN_CENTER, 20, 60);
+    lv_obj_align(mouth_arc_r, LV_ALIGN_CENTER, 20, 105);
     lv_obj_set_style_opa(mouth_arc_r, 0, 0);
 
     interest_mouth_l = lv_arc_create(scr);
@@ -1186,36 +1185,9 @@ void Deskimon_Start(void)
     lv_obj_set_style_bg_opa(lh_mask_r, LV_OPA_COVER, 0);
     lv_obj_align(lh_mask_r, LV_ALIGN_TOP_MID, 0, 0);
 
-    // SKEPTICAL mouth (flat bar)
-    skeptical_mouth = lv_obj_create(scr);
-    lv_obj_remove_style_all(skeptical_mouth);
-    lv_obj_set_size(skeptical_mouth, 60, 10);
-    lv_obj_set_style_radius(skeptical_mouth, 5, 0);
-    lv_obj_set_style_bg_color(skeptical_mouth, lv_color_hex(s_eye_color_hex), 0);
-    lv_obj_set_style_bg_opa(skeptical_mouth, LV_OPA_COVER, 0);
-    lv_obj_align(skeptical_mouth, LV_ALIGN_CENTER, 0, 60);
-    lv_obj_set_style_opa(skeptical_mouth, 0, 0);
 
-    // DIZZY mouth (zigzag line)
-    confused_mouth = lv_line_create(scr);
-    static lv_point_t cf_pts[] = {{0, 12}, {15, 0}, {30, 24}, {45, 0}, {60, 12}};
-    lv_line_set_points(confused_mouth, cf_pts, 5);
-    lv_obj_set_style_line_width(confused_mouth, 8, 0);
-    lv_obj_set_style_line_color(confused_mouth, lv_color_hex(s_eye_color_hex), 0);
-    lv_obj_set_style_line_rounded(confused_mouth, true, 0);
-    lv_obj_align(confused_mouth, LV_ALIGN_CENTER, -30, 50);
-    lv_obj_set_style_opa(confused_mouth, 0, 0);
 
-    // LOVE mouth (kiss circle)
-    kiss_mouth = lv_obj_create(scr);
-    lv_obj_remove_style_all(kiss_mouth);
-    lv_obj_set_size(kiss_mouth, 30, 30);
-    lv_obj_set_style_radius(kiss_mouth, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(kiss_mouth, 8, 0);
-    lv_obj_set_style_border_color(kiss_mouth, lv_color_hex(s_eye_color_hex), 0);
-    lv_obj_set_style_border_opa(kiss_mouth, LV_OPA_COVER, 0);
-    lv_obj_align(kiss_mouth, LV_ALIGN_CENTER, 0, 65);
-    lv_obj_set_style_opa(kiss_mouth, 0, 0);
+    // BLACK HOLE ANIMATION
 
     logic_timer = lv_timer_create(logic_timer_cb, 100, NULL);
 }
@@ -1299,9 +1271,8 @@ lv_obj_t* Spark_UI_GetObj(spark_ui_obj_id_t id) {
         case SPARK_UI_IGNORE_HEMI_R: return ignore_hemi_r;
         case SPARK_UI_INSEC_COVER_L: return insec_cover_l;
         case SPARK_UI_INSEC_COVER_R: return insec_cover_r;
-        case SPARK_UI_SKEPTICAL_MOUTH: return skeptical_mouth;
-        case SPARK_UI_CONFUSED_MOUTH: return confused_mouth;
-        case SPARK_UI_KISS_MOUTH: return kiss_mouth;
+
+
         default: return NULL;
     }
 }

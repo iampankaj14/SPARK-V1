@@ -2,6 +2,8 @@
 #include "spark_animation.h"
 #include "spark_ui_objects.h"
 #include "esp_log.h"
+#include "spark_solar_system.h"
+#include "spark_portal_travel.h"
 #include <string.h>
 
 #define TAG "SparkFace"
@@ -10,7 +12,7 @@ static spark_face_t s_current_face = SPARK_FACE_BOOT;
 static uint32_t s_eye_color_hex = 0x1AC8DB;
 
 // Static configuration database for all faces
-static const spark_face_config_t SPARK_FACES[SPARK_FACE_MAX] = {
+static const spark_face_config_t SPARK_FACES[SPARK_FACE_COUNT] = {
     [SPARK_FACE_NORMAL] = {
         .name = "NORMAL",
         .left_eye  = { .width = 100, .height = 165, .translate_x = 0, .translate_y = 0, .mask_top_y = -400, .mask_moon_y = -400, .is_visible = true },
@@ -53,8 +55,8 @@ static const spark_face_config_t SPARK_FACES[SPARK_FACE_MAX] = {
     },
     [SPARK_FACE_BLUSH] = {
         .name = "BLUSH",
-        .left_eye  = { .width = 100, .height = 165, .translate_x = 0, .translate_y = 0, .mask_top_y = -400, .mask_moon_y = 40, .is_visible = true },
-        .right_eye = { .width = 100, .height = 165, .translate_x = 0, .translate_y = 0, .mask_top_y = -400, .mask_moon_y = 40, .is_visible = true },
+        .left_eye  = { .width = 100, .height = 165, .translate_x = 0, .translate_y = 0, .mask_top_y = -400, .mask_moon_y = -400, .is_visible = true },
+        .right_eye = { .width = 100, .height = 165, .translate_x = 0, .translate_y = 0, .mask_top_y = -400, .mask_moon_y = -400, .is_visible = true },
         .mouth     = { .width = 40, .height = 40, .translate_x = 0, .translate_y = 60, .is_visible = true, .shape_type = 0 },
         .tears_visible = false,
         .default_transition_ms = 300
@@ -154,6 +156,23 @@ static const spark_face_config_t SPARK_FACES[SPARK_FACE_MAX] = {
         .mouth     = { .width = 140, .height = 70, .translate_x = 0, .translate_y = 50, .is_visible = true, .shape_type = 3 },
         .tears_visible = false,
         .default_transition_ms = 400
+    },
+
+    [SPARK_FACE_SOLAR_SYSTEM] = {
+        .name = "SOLAR_SYSTEM",
+        .left_eye  = { .is_visible = false },
+        .right_eye = { .is_visible = false },
+        .mouth     = { .is_visible = false },
+        .tears_visible = false,
+        .default_transition_ms = 400
+    },
+    [SPARK_FACE_PORTAL_TRAVEL] = {
+        .name = "PORTAL_TRAVEL",
+        .left_eye  = { .width = 100, .height = 165, .translate_x = 0, .translate_y = 0, .mask_top_y = -400, .mask_moon_y = -400, .is_visible = true },
+        .right_eye = { .width = 100, .height = 165, .translate_x = 0, .translate_y = 0, .mask_top_y = -400, .mask_moon_y = -400, .is_visible = true },
+        .mouth     = { .is_visible = false },
+        .tears_visible = false,
+        .default_transition_ms = 400
     }
 };
 
@@ -167,24 +186,29 @@ spark_face_t Spark_Face_Get(void) {
 }
 
 const char* Spark_Face_GetName(spark_face_t face) {
-    if (face < SPARK_FACE_MAX) {
+    if (face < SPARK_FACE_COUNT) {
         return SPARK_FACES[face].name;
     }
     return "UNKNOWN";
 }
 
 const spark_face_config_t* Spark_Face_GetConfig(spark_face_t face) {
-    if (face < SPARK_FACE_MAX) {
+    if (face < SPARK_FACE_COUNT) {
         return &SPARK_FACES[face];
     }
     return NULL;
 }
 
 static void hide_all_masks(uint32_t time) {
-    Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_MASK_TOP_L), Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(Spark_UI_GetObj(SPARK_UI_MASK_TOP_L), 0), -400, time);
-    Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_MASK_TOP_R), Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(Spark_UI_GetObj(SPARK_UI_MASK_TOP_R), 0), -400, time);
-    Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_MASK_MOON_L), Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(Spark_UI_GetObj(SPARK_UI_MASK_MOON_L), 0), -400, time);
-    Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_MASK_MOON_R), Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(Spark_UI_GetObj(SPARK_UI_MASK_MOON_R), 0), -400, time);
+    lv_obj_t *mask_top_l = Spark_UI_GetObj(SPARK_UI_MASK_TOP_L);
+    lv_obj_t *mask_top_r = Spark_UI_GetObj(SPARK_UI_MASK_TOP_R);
+    lv_obj_t *mask_moon_l = Spark_UI_GetObj(SPARK_UI_MASK_MOON_L);
+    lv_obj_t *mask_moon_r = Spark_UI_GetObj(SPARK_UI_MASK_MOON_R);
+
+    if (mask_top_l) Spark_Anim_Prop(mask_top_l, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(mask_top_l, 0), -400, time);
+    if (mask_top_r) Spark_Anim_Prop(mask_top_r, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(mask_top_r, 0), -400, time);
+    if (mask_moon_l) Spark_Anim_Prop(mask_moon_l, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(mask_moon_l, 0), -400, time);
+    if (mask_moon_r) Spark_Anim_Prop(mask_moon_r, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(mask_moon_r, 0), -400, time);
 }
 
 static void hide_all_accessories(uint32_t time) {
@@ -211,7 +235,7 @@ static void hide_all_accessories(uint32_t time) {
     Spark_Anim_Fade(Spark_UI_GetObj(SPARK_UI_IGNORE_HEMI_L), false, time);
     Spark_Anim_Fade(Spark_UI_GetObj(SPARK_UI_IGNORE_HEMI_R), false, time);
     Spark_Anim_Fade(Spark_UI_GetObj(SPARK_UI_MOUTH_YAWN), false, time);
-    
+
     Spark_Anim_Stop(Spark_UI_GetObj(SPARK_UI_INSEC_COVER_L));
     lv_obj_set_style_opa(Spark_UI_GetObj(SPARK_UI_INSEC_COVER_L), 0, 0);
     Spark_Anim_Stop(Spark_UI_GetObj(SPARK_UI_INSEC_COVER_R));
@@ -232,7 +256,8 @@ void Spark_Face_Set(spark_face_t face) {
 
     // Hide base eyes ONLY if we are switching to dedicated visual layouts
     if (face == SPARK_FACE_INSECURE || face == SPARK_FACE_INTEREST || 
-        face == SPARK_FACE_IGNORE || face == SPARK_FACE_EYES_CLOSED) {
+        face == SPARK_FACE_IGNORE || face == SPARK_FACE_EYES_CLOSED ||
+        face == SPARK_FACE_SOLAR_SYSTEM) {
         Spark_Anim_Fade(Spark_UI_GetObj(SPARK_UI_EYE_CONTAINER_L), false, 300);
         Spark_Anim_Fade(Spark_UI_GetObj(SPARK_UI_EYE_CONTAINER_R), false, 300);
     } else {
@@ -243,7 +268,15 @@ void Spark_Face_Set(spark_face_t face) {
     hide_all_masks(300);
     hide_all_accessories(300);
 
-    // Apply the static eye layout transitions
+    // Default behaviour for new face
+    hide_all_accessories(cfg->default_transition_ms);
+    hide_all_masks(cfg->default_transition_ms);
+
+    // Hide special cinematic screensavers by default when switching faces
+    Spark_SolarSystem_Hide();
+    Spark_PortalTravel_Hide();
+
+    // 1. Update Left Eye
     if (cfg->left_eye.is_visible) {
         Spark_Anim_AnimateEyeBase(
             Spark_UI_GetObj(SPARK_UI_EYE_CONTAINER_L),
@@ -252,6 +285,7 @@ void Spark_Face_Set(spark_face_t face) {
             cfg->default_transition_ms
         );
     }
+    // 2. Update Right Eye
     if (cfg->right_eye.is_visible) {
         Spark_Anim_AnimateEyeBase(
             Spark_UI_GetObj(SPARK_UI_EYE_CONTAINER_R),
@@ -261,18 +295,23 @@ void Spark_Face_Set(spark_face_t face) {
         );
     }
 
-    // Apply masks
-    if (cfg->left_eye.mask_top_y != -400) {
-        Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_MASK_TOP_L), Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(Spark_UI_GetObj(SPARK_UI_MASK_TOP_L), 0), cfg->left_eye.mask_top_y, cfg->default_transition_ms);
+    // Apply masks safely
+    lv_obj_t *mask_top_l = Spark_UI_GetObj(SPARK_UI_MASK_TOP_L);
+    lv_obj_t *mask_top_r = Spark_UI_GetObj(SPARK_UI_MASK_TOP_R);
+    lv_obj_t *mask_moon_l = Spark_UI_GetObj(SPARK_UI_MASK_MOON_L);
+    lv_obj_t *mask_moon_r = Spark_UI_GetObj(SPARK_UI_MASK_MOON_R);
+
+    if (cfg->left_eye.mask_top_y != -400 && mask_top_l) {
+        Spark_Anim_Prop(mask_top_l, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(mask_top_l, 0), cfg->left_eye.mask_top_y, cfg->default_transition_ms);
     }
-    if (cfg->right_eye.mask_top_y != -400) {
-        Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_MASK_TOP_R), Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(Spark_UI_GetObj(SPARK_UI_MASK_TOP_R), 0), cfg->right_eye.mask_top_y, cfg->default_transition_ms);
+    if (cfg->right_eye.mask_top_y != -400 && mask_top_r) {
+        Spark_Anim_Prop(mask_top_r, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(mask_top_r, 0), cfg->right_eye.mask_top_y, cfg->default_transition_ms);
     }
-    if (cfg->left_eye.mask_moon_y != -400) {
-        Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_MASK_MOON_L), Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(Spark_UI_GetObj(SPARK_UI_MASK_MOON_L), 0), cfg->left_eye.mask_moon_y, cfg->default_transition_ms);
+    if (cfg->left_eye.mask_moon_y != -400 && mask_moon_l) {
+        Spark_Anim_Prop(mask_moon_l, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(mask_moon_l, 0), cfg->left_eye.mask_moon_y, cfg->default_transition_ms);
     }
-    if (cfg->right_eye.mask_moon_y != -400) {
-        Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_MASK_MOON_R), Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(Spark_UI_GetObj(SPARK_UI_MASK_MOON_R), 0), cfg->right_eye.mask_moon_y, cfg->default_transition_ms);
+    if (cfg->right_eye.mask_moon_y != -400 && mask_moon_r) {
+        Spark_Anim_Prop(mask_moon_r, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(mask_moon_r, 0), cfg->right_eye.mask_moon_y, cfg->default_transition_ms);
     }
 
     // Apply specific visual state overrides for visual accessories
@@ -294,6 +333,10 @@ void Spark_Face_Set(spark_face_t face) {
         case SPARK_FACE_CRY:
             Spark_Anim_Fade(Spark_UI_GetObj(SPARK_UI_TEAR_L), true, 300);
             Spark_Anim_Fade(Spark_UI_GetObj(SPARK_UI_TEAR_R), true, 300);
+            Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_TEAR_L), Spark_Anim_SetHeightCb, 0, 80, 500);
+            Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_TEAR_L), Spark_Anim_SetTyCb, 0, 40, 500);
+            Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_TEAR_R), Spark_Anim_SetHeightCb, 0, 80, 500);
+            Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_TEAR_R), Spark_Anim_SetTyCb, 0, 40, 500);
             break;
             
         case SPARK_FACE_CRYING_MOUTH:
@@ -381,6 +424,16 @@ void Spark_Face_Set(spark_face_t face) {
             Spark_Anim_Prop(Spark_UI_GetObj(SPARK_UI_LAUGH_MOUTH), Spark_Anim_SetHeightCb, 5, 70, 400);
             break;
             
+
+
+        case SPARK_FACE_SOLAR_SYSTEM:
+            Spark_SolarSystem_Show();
+            break;
+            
+        case SPARK_FACE_PORTAL_TRAVEL:
+            Spark_PortalTravel_Show();
+            break;
+
         default:
             break;
     }

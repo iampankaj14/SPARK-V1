@@ -10,7 +10,7 @@
 
 #include "Display_SPD2010.h"
 
-#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * EXAMPLE_LCD_HEIGHT / 10)
+#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * EXAMPLE_LCD_HEIGHT / 20)
 #define EXAMPLE_LVGL_TICK_PERIOD_MS    2
 
 extern lv_disp_draw_buf_t disp_buf;                                                 // contains internal graphic buffer(s) called draw buffer(s)

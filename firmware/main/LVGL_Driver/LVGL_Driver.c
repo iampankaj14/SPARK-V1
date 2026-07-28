@@ -2,7 +2,7 @@
 
 static const char *TAG_LVGL = "LVGL";
 
-    
+     
 
 lv_disp_draw_buf_t disp_buf;                                                 // contains internal graphic buffer(s) called draw buffer(s)
 lv_disp_drv_t disp_drv;                                                      // contains callback functions
@@ -107,7 +107,7 @@ void LVGL_Init(void)
     lv_disp_drv_init(&disp_drv);                                                                        // Create a new screen object and initialize the associated device
     disp_drv.hor_res = EXAMPLE_LCD_WIDTH;             
     disp_drv.ver_res = EXAMPLE_LCD_HEIGHT;                                                     // Horizontal pixel count
-    // disp_drv.rotated = LV_DISP_ROT_90; // 图像旋转                                                            // Vertical axis pixel count
+    // disp_drv.rotated = LV_DISP_ROT_90;
     disp_drv.flush_cb = example_lvgl_flush_cb;                                                          // Function : copy a buffer's content to a specific area of the display
     disp_drv.drv_update_cb = example_lvgl_port_update_callback;         
     disp_drv.rounder_cb = Lvgl_port_rounder_callback;                                    // Function : Rotate display and touch, when rotated screen in LVGL. Called when driver parameters are updated. 

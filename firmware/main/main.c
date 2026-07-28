@@ -1,4 +1,5 @@
 #include "Display_SPD2010.h"
+#include "esp_timer.h"
 #include "PCF85063.h"
 #include "QMI8658.h"
 #include "SD_MMC.h"
@@ -15,11 +16,11 @@
 #include "spark_animation.h"
 #include "spark_emotion.h"
 #include "spark_intent.h"
+#include "spark_solar_system.h"
+#include "spark_portal_travel.h"
 
 void Driver_Loop(void *parameter)
 {
-    vTaskDelay(pdMS_TO_TICKS(5000));
-    Wireless_Init();
     while(1)
     {
         QMI8658_Loop();
@@ -54,9 +55,14 @@ void app_main(void)
 
     SD_Init();
     LCD_Init();
+    
+    // Initialize Wi-Fi first to guarantee it gets contiguous internal DMA memory 
+    // before LVGL and Speech Models consume all internal RAM.
+    Wireless_Init();
+    
     LVGL_Init();
     Audio_Init();
-    MIC_Speech_init();
+    // MIC_Speech_init(); // Disabled for UI testing to stop AFE spam
     
     // Initialize Spark Core Managers
     Spark_State_Init();
@@ -68,11 +74,16 @@ void app_main(void)
 
     // Start the Deskimon Interface
     Deskimon_Start();
+    
+    // Initialize Cinematic Faces
+    Spark_SolarSystem_Init(lv_scr_act());
+    Spark_PortalTravel_Init(lv_scr_act());
+
+    // Force boot directly to the new Face for testing
+    Spark_Face_Set(SPARK_FACE_PORTAL_TRAVEL);
 
     while (1) {
-        // raise the task priority of LVGL and/or reduce the handler period can improve the performance
         vTaskDelay(pdMS_TO_TICKS(10));
-        // The task running lv_timer_handler should have lower priority than that running `lv_tick_inc`
         lv_timer_handler();
     }
 }

@@ -26,6 +26,9 @@ idf_component_register(
                               "./SparkCore/spark_animation.c"
                               "./SparkCore/spark_emotion.c"
                               "./SparkCore/spark_intent.c"
+                              "./SparkCore/spark_solar_system.c"
+                              "./SparkCore/spark_portal_travel.c"
+                              "./assets/portal_frames.c"
 
                          INCLUDE_DIRS 
                               "./Audio_Driver" 

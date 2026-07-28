@@ -647,7 +647,10 @@ static void detect_hander(AppSpeech *self)
             // Speech onset detection is handled in feed_handler.
             // Timer callback handles timeout -> IDLE transition.
             // feed_handler handles speech detected -> LISTENING transition.
-            vTaskDelay(pdMS_TO_TICKS(50));
+            afe_fetch_result_t* res = self->afe_handle->fetch(afe_data); 
+            if (!res || res->ret_value == ESP_FAIL) {
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
             break;
         }
 
@@ -758,7 +761,7 @@ void MIC_Speech_init()
 #endif
     MIC_Speech.afe_data = MIC_Speech.afe_handle->create_from_config(&afe_config);
     xTaskCreatePinnedToCore((TaskFunction_t)feed_handler, "App/SR/Feed", 4 * 1024, &MIC_Speech, 5, NULL, 1);
-    xTaskCreatePinnedToCore((TaskFunction_t)detect_hander, "App/SR/Detect", 5 * 1024, &MIC_Speech, 5, NULL, 1);
+    xTaskCreatePinnedToCore((TaskFunction_t)detect_hander, "App/SR/Detect", 16 * 1024, &MIC_Speech, 5, NULL, 1);
 
     ESP_LOGI(TAG, "MIC Speech initialized with continuous conversation support.");
 }
