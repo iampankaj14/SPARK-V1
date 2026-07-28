@@ -69,8 +69,8 @@ elseif(${IDF_TARGET} STREQUAL "esp32s3")
                        REQUIRES ${requires}
                        PRIV_REQUIRES spi_flash)
 
-    target_link_libraries(${COMPONENT_TARGET} "-L ${CMAKE_CURRENT_SOURCE_DIR}/lib/esp32s3")
-    target_link_libraries(${COMPONENT_TARGET} "-L ${CMAKE_CURRENT_SOURCE_DIR}/esp-tts/esp_tts_chinese/esp32s3")
+    target_link_libraries(${COMPONENT_TARGET} "-L\"${CMAKE_CURRENT_SOURCE_DIR}/lib/esp32s3\"")
+    target_link_libraries(${COMPONENT_TARGET} "-L\"${CMAKE_CURRENT_SOURCE_DIR}/esp-tts/esp_tts_chinese/esp32s3\"")
 
     add_prebuilt_library(flite_g2p "${CMAKE_CURRENT_SOURCE_DIR}/lib/esp32s3/libflite_g2p.a" PRIV_REQUIRES ${COMPONENT_NAME})
     add_prebuilt_library(esp_audio_processor "${CMAKE_CURRENT_SOURCE_DIR}/lib/esp32s3/libesp_audio_processor.a" PRIV_REQUIRES ${COMPONENT_NAME})

@@ -1,0 +1,355 @@
+[0;32mI (6735) pp: pp rom version: e7ae62f[0m
+[0;32mI (6735) net80211: net80211 rom version: e7ae62f[0m
+I (6745) wifi:wifi driver task: 3fcebe24, prio:23, stack:6656, core=0
+I (6745) wifi:wifi firmware version: b0fd6006b
+I (6755) wifi:wifi certification version: v7.0
+I (6755) wifi:config NVS flash: enabled
+I (6755) wifi:config nano formating: disabled
+I (6755) wifi:Init data frame dynamic rx buffer num: 32
+I (6755) wifi:Init static rx mgmt buffer num: 5
+I (6755) wifi:Init management short buffer num: 32
+I (6755) wifi:Init dynamic tx buffer num: 32
+I (6755) wifi:Init tx cache buffer num: 32
+I (6755) wifi:Init static tx FG buffer num: 2
+I (6755) wifi:Init static rx buffer size: 1600
+W (6755) wifi:malloc buffer fail
+I (6755) wifi:Init static rx buffer num: 5
+I (6755) wifi:Init dynamic rx buffer num: 32
+E (6755) wifi:Expected to init 10 rx buffer, actual is 5
+I (6755) wifi:Deinit lldesc rx mblock:0
+I (6755) wifi:Deinit lldesc rx mblock:0
+I (6755) wifi:Deinit lldesc rx mblock:0
+I (6755) wifi:Deinit lldesc rx mblock:0
+[0;33mW (6765) wifi_init: Failed to unregister Rx callbacks[0m
+[0;31mE (6765) wifi_init: Failed to deinit Wi-Fi driver (0x3001)[0m
+[0;31mE (6765) wifi_init: Failed to deinit Wi-Fi (0x3001)[0m
+ESP_ERR_NO_MEM) at 0x4200f196
+file: "./main/Wireless/Wireless.c" line 33
+func: Wireless_Init
+expression: esp_wifi_init(&cfg)
+
+abort() was called at PC 0x403814a7 on core 0
+
+
+Backtrace: 0x4037601a:0x3fcc3c10 0x403814b1:0x3fcc3c30 0x4038acdd:0x3fcc3c50 0x403814a7:0x3fcc3cc0 0x4200f196:0x3fcc3cf0 0x42009db0:0x3fcc3df0 0x403821a1:0x3fcc3e10
+
+
+
+
+ELF file SHA256: 25dccedb2
+
+Rebooting...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0xc (RTC_SW_CPU_RST),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x40375f54
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x19fc
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xde4
+load:0x403cb700,len:0x3174
+entry 0x403c8930
+[0;32mI (26) boot: ESP-IDF v5.3.2-dirty 2nd stage bootloader[0m
+[0;32mI (26) boot: compile time Jul 18 2026 19:13:17[0m
+[0;32mI (26) boot: Multicore bootloader[0m
+[0;32mI (27) boot: chip revision: v0.2[0m
+[0;32mI (27) boot: efuse block revision: v1.3[0m
+[0;32mI (27) qio_mode: Enabling QIO for flash chip WinBond[0m
+[0;32mI (27) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (27) boot.esp32s3: SPI Mode       : QIO[0m
+[0;32mI (28) boot.esp32s3: SPI Flash Size : 16MB[0m
+[0;32mI (28) boot: Enabling RNG early entropy source...[0m
+[0;32mI (28) boot: Partition Table:[0m
+[0;32mI (28) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (29) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (29) boot:  1 factory          factory app      00 00 00010000 00300000[0m
+[0;32mI (30) boot:  2 flash_test       Unknown data     01 81 00310000 00084000[0m
+[0;32mI (30) boot:  3 model            Unknown data     01 82 00394000 005c3000[0m
+[0;32mI (30) boot: End of partition table[0m
+[0;32mI (31) esp_image: segment 0: paddr=00010020 vaddr=3c140020 size=5c914h (379156) map[0m
+[0;32mI (87) esp_image: segment 1: paddr=0006c93c vaddr=3fca0400 size=036dch ( 14044) load[0m
+[0;32mI (90) esp_image: segment 2: paddr=00070020 vaddr=42000020 size=13b04ch (1290316) map[0m
+[0;32mI (282) esp_image: segment 3: paddr=001ab074 vaddr=3fca3adc size=04f44h ( 20292) load[0m
+[0;32mI (286) esp_image: segment 4: paddr=001affc0 vaddr=40374000 size=1c34ch (115532) load[0m
+[0;32mI (308) esp_image: segment 5: paddr=001cc314 vaddr=600fe100 size=00004h (     4) load[0m
+[0;32mI (320) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (321) boot: Disabling RNG early entropy source...[0m
+[0;32mI (322) octal_psram: vendor id    : 0x0d (AP)[0m
+[0;32mI (322) octal_psram: dev id       : 0x02 (generation 3)[0m
+[0;32mI (322) octal_psram: density      : 0x03 (64 Mbit)[0m
+[0;32mI (323) octal_psram: good-die     : 0x01 (Pass)[0m
+[0;32mI (323) octal_psram: Latency      : 0x01 (Fixed)[0m
+[0;32mI (323) octal_psram: VCC          : 0x01 (3V)[0m
+[0;32mI (323) octal_psram: SRF          : 0x01 (Fast Refresh)[0m
+[0;32mI (324) octal_psram: BurstType    : 0x01 (Hybrid Wrap)[0m
+[0;32mI (324) octal_psram: BurstLen     : 0x01 (32 Byte)[0m
+[0;32mI (324) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)[0m
+[0;32mI (325) octal_psram: DriveStrength: 0x00 (1/1)[0m
+[0;32mI (325) MSPI Timing: PSRAM timing tuning index: 5[0m
+[0;32mI (326) esp_psram: Found 8MB PSRAM device[0m
+[0;32mI (326) esp_psram: Speed: 80MHz[0m
+[0;32mI (326) cpu_start: Multicore app[0m
+[0;32mI (647) esp_psram: SPI SRAM memory test OK[0m
+[0;32mI (656) cpu_start: Pro cpu start user code[0m
+[0;32mI (656) cpu_start: cpu freq: 240000000 Hz[0m
+[0;32mI (656) app_init: Application information:[0m
+[0;32mI (656) app_init: Project name:     ESP32-S3-Touch-LCD-1.46-Test[0m
+[0;32mI (657) app_init: App version:      3603aaa-dirty[0m
+[0;32mI (657) app_init: Compile time:     Jul 18 2026 19:10:44[0m
+[0;32mI (657) app_init: ELF file SHA256:  25dccedb2...[0m
+[0;32mI (657) app_init: ESP-IDF:          v5.3.2-dirty[0m
+[0;32mI (657) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (657) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (658) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (658) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (658) heap_init: At 3FCBA790 len 0002EF80 (187 KiB): RAM[0m
+[0;32mI (658) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (659) heap_init: At 600FE104 len 00001EE4 (7 KiB): RTCRAM[0m
+[0;32mI (659) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator[0m
+[0;32mI (660) spi_flash: detected chip: winbond[0m
+[0;32mI (660) spi_flash: flash io: qio[0m
+[0;33mW (660) i2c: This driver is an old driver, please migrate your application code to adapt `driver/i2c_master.h`[0m
+[0;32mI (661) sleep: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (661) sleep: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (661) coexist: coex firmware version: cbb41d7[0m
+[0;32mI (662) coexist: coexist rom version e7ae62f[0m
+[0;32mI (662) main_task: Started on CPU0[0m
+[0;32mI (672) main_task: Calling app_main()[0m
+[0;32mI (672) gpio: GPIO[6]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (672) gpio: GPIO[7]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (1672) ADC: calibration scheme version is Curve Fitting[0m
+[0;32mI (1672) ADC: Calibration Success[0m
+[0;32mI (1672) I2C: I2C initialized successfully[0m
+Flash size: 16 MB
+QMI8658 Device ID: 7c
+[0;32mI (1672) SD: Initializing SD card[0m
+[0;32mI (1672) SD: Using SPI peripheral[0m
+[0;32mI (1672) SD: Mounting filesystem[0m
+[0;32mI (1672) gpio: GPIO[14]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (1672) gpio: GPIO[17]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (1672) gpio: GPIO[16]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (1702) SD: Filesystem mounted[0m
+Name: 00000
+Type: SDHC/SDXC
+Speed: 20.00 MHz (limit: 20.00 MHz)
+Size: 15279MB
+CSD: ver=2, sector_size=512, capacity=31291392 read_bl_len=9
+SSR: bus_width=1
+The SPI initialization succeeded.
+LCD communication parameters are set successfully -- SPI
+Install LCD driver of SPD2010
+[0;32mI (2062) SPD2010: Turn off LCD backlight[0m
+[0;32mI (2062) gpio: GPIO[5]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m
+Dummy[-1277549645], DVer[111], PID[1213416448], Name[1397769216-842019120]
+[0;32mI (2162) LVGL: Initialize LVGL library[0m
+buf1 allocated at: 0x3fcc5248 (internal DMA free: 153276 bytes)
+buf2 allocated at: 0x3fcc949c (internal DMA free: 136296 bytes)
+[0;32mI (2162) LVGL: Register display driver to LVGL[0m
+[0;32mI (2162) LVGL: Register display indev to LVGL[0m
+[0;32mI (2162) LVGL: Install LVGL tick timer[0m
+D (2162) i2s_common: tx channel is registered on I2S0 successfully[0m
+D (2162) i2s_common: rx channel is registered on I2S0 successfully[0m
+D (2162) i2s_common: DMA malloc info: dma_desc_num = 6, dma_desc_buf_size = dma_frame_num * slot_num * data_bit_width = 960[0m
+D (2162) i2s_std: Clock division info: [sclk] 160000000 Hz [mdiv] 14 [mclk] 11289600 Hz [bdiv] 8 [bclk] 1411200 Hz[0m
+D (2162) i2s_std: The tx channel on I2S0 has been initialized to STD mode successfully[0m
+D (2162) i2s_common: i2s tx channel enabled[0m
+D (2162) i2s_common: DMA malloc info: dma_desc_num = 6, dma_desc_buf_size = dma_frame_num * slot_num * data_bit_width = 960[0m
+D (2162) i2s_std: Clock division info: [sclk] 160000000 Hz [mdiv] 14 [mclk] 11289600 Hz [bdiv] 8 [bclk] 1411200 Hz[0m
+D (2162) i2s_std: The rx channel on I2S0 has been initialized to STD mode successfully[0m
+D (2162) i2s_common: i2s rx channel enabled[0m
+[0;32mI (2162) AUDIO PCM5101: mute setting 0[0m
+[0;32mI (2162) App/Speech: Allocated 160KB record buffer in SPIRAM successfully.[0m
+[0;32mI (2172) App/Speech: Speech Init RAM Stats - Free Heap: 8290152 bytes (Internal: 84180, SPIRAM: 8198444)[0m
+[0;32mI (2172) App/Speech: Follow-up timer created (15000 ms timeout).[0m
+[0;32mI (2172) MODEL_LOADER: The storage free size is 22912 KB[0m
+[0;32mI (2172) MODEL_LOADER: The partition size is 5900 KB[0m
+[0;32mI (2172) MODEL_LOADER: Successfully load srmodels[0m
+D (2172) i2s_common: rx channel is registered on I2S1 successfully[0m
+D (2172) i2s_common: DMA malloc info: dma_desc_num = 6, dma_desc_buf_size = dma_frame_num * slot_num * data_bit_width = 960[0m
+D (2172) i2s_std: Clock division info: [sclk] 160000000 Hz [mdiv] 39 [mclk] 4096000 Hz [bdiv] 4 [bclk] 1024000 Hz[0m
+D (2172) i2s_std: The rx channel on I2S1 has been initialized to STD mode successfully[0m
+D (2172) i2s_common: i2s rx channel enabled[0m
+[0;32mI (2172) App/Speech: Continuous MultiNet Wake Word Spotter enabled (WakeNet bypassed)[0m
+[0;32mI (2172) AFE_SR: afe interface for speech recognition[0m
+[0;32mI (2172) AFE_SR: AFE version: SR_V220727[0m
+[0;32mI (2172) AFE_SR: Initial auido front-end, total channel: 1, mic num: 1, ref num: 0[0m
+[0;32mI (2172) AFE_SR: aec_init: 0, se_init: 0, vad_init: 0
+[0m
+[0;32mI (2172) AFE_SR: wakenet_init: 0
+[0m
+[0;32mI (2272) AFE_SR: wake num: 1, mode: 0, (Nov  5 2024 16:02:49)
+[0m
+[0;32mI (2272) App/Speech: MIC Speech initialized with continuous conversation support.[0m
+[0;32mI (2272) SparkFace: Face Manager initialized successfully[0m
+[0;32mI (2272) App/Speech: multinet:mn5q8_en
+[0m
+[0;32mI (2272) SparkAnimation: Animation Registry initialized[0m
+[0;32mI (2272) SparkEmotion: Emotion Manager initialized[0m
+[0;32mI (2272) SparkIntent: Intent Manager initialized[0m
+[0;32mI (2422) DESKIMON_UI: Runtime eye color update triggered. Hex value: 0x1AC8DB[0m
+Quantized8 Multinet5: MN5Q8_v2_english_8_0.9_0.90, beam search:v2, (Nov  5 2024 16:02:48)
+esp_mn_commands_update_from_sdkconfig
+[0;33mW (2502) AFE_SR: Ringbuffer of AFE is full. Please use fetch() to retrieve data from the ringbuffer soon to avoid data loss or overwriting!!![0m
+[0;32mI (2502) MN_COMMAND: ---------------------SPEECH COMMANDS---------------------[0m
+[0;32mI (2502) MN_COMMAND: Command ID0, phrase ID0: BaKLiT gZ BRiTcST[0m
+[0;32mI (2502) MN_COMMAND: Command ID1, phrase ID1: BaKLiT gZ DnRKcST[0m
+[0;32mI (2502) MN_COMMAND: Command ID2, phrase ID2: TkN eF jc BaKLiT[0m
+[0;32mI (2502) MN_COMMAND: Command ID3, phrase ID3: TkN nN jc BaKLiT[0m
+[0;32mI (2502) MN_COMMAND: Command ID4, phrase ID4: PLd MYoZgK[0m
+[0;32mI (2502) MN_COMMAND: Command ID5, phrase ID5: SPnRK[0m
+[0;32mI (2502) MN_COMMAND: Command ID6, phrase ID6: hi SPnRK[0m
+[0;32mI (2502) MN_COMMAND: Command ID7, phrase ID7: hd SPnRK[0m
+[0;32mI (2512) MN_COMMAND: ---------------------------------------------------------
+[0m
+phrase id:0, command id:0, str:B a K L i T   g Z   B R i T c S T 
+phrase id:1, command id:1, str:B a K L i T   g Z   D n R K c S T 
+phrase id:2, command id:2, str:T k N   e F   j c   B a K L i T 
+phrase id:3, command id:3, str:T k N   n N   j c   B a K L i T 
+phrase id:4, command id:4, str:P L d   M Y o Z g K 
+phrase id:5, command id:5, str:S P n R K 
+phrase id:6, command id:6, str:h i   S P n R K 
+phrase id:7, command id:7, str:h d   S P n R K 
+[0;32mI (2512) App/Speech: Ready[0m
+[0;32mI (6692) pp: pp rom version: e7ae62f[0m
+[0;32mI (6692) net80211: net80211 rom version: e7ae62f[0m
+I (6702) wifi:wifi driver task: 3fcebe24, prio:23, stack:6656, core=0
+I (6702) wifi:wifi firmware version: b0fd6006b
+I (6702) wifi:wifi certification version: v7.0
+I (6702) wifi:config NVS flash: enabled
+I (6702) wifi:config nano formating: disabled
+I (6712) wifi:Init data frame dynamic rx buffer num: 32
+I (6712) wifi:Init static rx mgmt buffer num: 5
+I (6712) wifi:Init management short buffer num: 32
+I (6712) wifi:Init dynamic tx buffer num: 32
+I (6712) wifi:Init tx cache buffer num: 32
+I (6712) wifi:Init static tx FG buffer num: 2
+I (6712) wifi:Init static rx buffer size: 1600
+W (6712) wifi:malloc buffer fail
+I (6712) wifi:Init static rx buffer num: 6
+I (6712) wifi:Init dynamic rx buffer num: 32
+E (6712) wifi:Expected to init 10 rx buffer, actual is 6
+I (6712) wifi:Deinit lldesc rx mblock:0
+I (6712) wifi:Deinit lldesc rx mblock:0
+I (6712) wifi:Deinit lldesc rx mblock:0
+I (6712) wifi:Deinit lldesc rx mblock:0
+[0;33mW (6722) wifi_init: Failed to unregister Rx callbacks[0m
+[0;31mE (6722) wifi_init: Failed to deinit Wi-Fi driver (0x3001)[0m
+[0;31mE (6722) wifi_init: Failed to deinit Wi-Fi (0x3001)[0m
+ESP_ERROR_CHECK failed: esp_err_t 0x101 (ESP_ERR_NO_MEM) at 0x4200f196
+file: "./main/Wireless/Wireless.c" line 33
+func: Wireless_Init
+expression: esp_wifi_init(&cfg)
+
+abort() was called at PC 0x403814a7 on core 0
+
+
+Backtrace: 0x4037601a:0x3fcc3c10 0x403814b1:0x3fcc3c30 0x4038acdd:0x3fcc3c50 0x403814a7:0x3fcc3cc0 0x4200f196:0x3fcc3cf0 0x42009db0:0x3fcc3df0 0x403821a1:0x3fcc3e10
+
+
+
+
+ELF file SHA256: 25dccedb2
+
+Rebooting...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0xc (RTC_SW_CPU_RST),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x40375f54
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x19fc
+load:0x403c8700,len:0x4
+load:0x403c8704,len:0xde4
+load:0x403cb700,len:0x3174
+entry 0x403c8930
+[0;32mI (26) boot: ESP-IDF v5.3.2-dirty 2nd stage bootloader[0m
+[0;32mI (26) boot: compile time Jul 18 2026 19:13:17[0m
+[0;32mI (26) boot: Multicore bootloader[0m
+[0;32mI (27) boot: chip revision: v0.2[0m
+[0;32mI (27) boot: efuse block revision: v1.3[0m
+[0;32mI (27) qio_mode: Enabling QIO for flash chip WinBond[0m
+[0;32mI (27) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (27) boot.esp32s3: SPI Mode       : QIO[0m
+[0;32mI (28) boot.esp32s3: SPI Flash Size : 16MB[0m
+[0;32mI (28) boot: Enabling RNG early entropy source...[0m
+[0;32mI (28) boot: Partition Table:[0m
+[0;32mI (28) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (29) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (29) boot:  1 factory          factory app      00 00 00010000 00300000[0m
+[0;32mI (30) boot:  2 flash_test       Unknown data     01 81 00310000 00084000[0m
+[0;32mI (30) boot:  3 model            Unknown data     01 82 00394000 005c3000[0m
+[0;32mI (30) boot: End of partition table[0m
+[0;32mI (31) esp_image: segment 0: paddr=00010020 vaddr=3c140020 size=5c914h (379156) map[0m
+[0;32mI (87) esp_image: segment 1: paddr=0006c93c vaddr=3fca0400 size=036dch ( 14044) load[0m
+[0;32mI (90) esp_image: segment 2: paddr=00070020 vaddr=42000020 size=13b04ch (1290316) map[0m
+[0;32mI (282) esp_image: segment 3: paddr=001ab074 vaddr=3fca3adc size=04f44h ( 20292) load[0m
+[0;32mI (286) esp_image: segment 4: paddr=001affc0 vaddr=40374000 size=1c34ch (115532) load[0m
+[0;32mI (308) esp_image: segment 5: paddr=001cc314 vaddr=600fe100 size=00004h (     4) load[0m
+[0;32mI (320) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (321) boot: Disabling RNG early entropy source...[0m
+[0;32mI (322) octal_psram: vendor id    : 0x0d (AP)[0m
+[0;32mI (322) octal_psram: dev id       : 0x02 (generation 3)[0m
+[0;32mI (322) octal_psram: density      : 0x03 (64 Mbit)[0m
+[0;32mI (323) octal_psram: good-die     : 0x01 (Pass)[0m
+[0;32mI (323) octal_psram: Latency      : 0x01 (Fixed)[0m
+[0;32mI (323) octal_psram: VCC          : 0x01 (3V)[0m
+[0;32mI (323) octal_psram: SRF          : 0x01 (Fast Refresh)[0m
+[0;32mI (324) octal_psram: BurstType    : 0x01 (Hybrid Wrap)[0m
+[0;32mI (324) octal_psram: BurstLen     : 0x01 (32 Byte)[0m
+[0;32mI (324) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)[0m
+[0;32mI (325) octal_psram: DriveStrength: 0x00 (1/1)[0m
+[0;32mI (325) MSPI Timing: PSRAM timing tuning index: 5[0m
+[0;32mI (326) esp_psram: Found 8MB PSRAM device[0m
+[0;32mI (326) esp_psram: Speed: 80MHz[0m
+[0;32mI (326) cpu_start: Multicore app[0m
+[0;32mI (647) esp_psram: SPI SRAM memory test OK[0m
+[0;32mI (656) cpu_start: Pro cpu start user code[0m
+[0;32mI (656) cpu_start: cpu freq: 240000000 Hz[0m
+[0;32mI (656) app_init: Application information:[0m
+[0;32mI (656) app_init: Project name:     ESP32-S3-Touch-LCD-1.46-Test[0m
+[0;32mI (657) app_init: App version:      3603aaa-dirty[0m
+[0;32mI (657) app_init: Compile time:     Jul 18 2026 19:10:44[0m
+[0;32mI (657) app_init: ELF file SHA256:  25dccedb2...[0m
+[0;32mI (657) app_init: ESP-IDF:          v5.3.2-dirty[0m
+[0;32mI (657) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (657) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (658) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (658) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (658) heap_init: At 3FCBA790 len 0002EF80 (187 KiB): RAM[0m
+[0;32mI (658) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (659) heap_init: At 600FE104 len 00001EE4 (7 KiB): RTCRAM[0m
+[0;32mI (659) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator[0m
+[0;32mI (660) spi_flash: detected chip: winbond[0m
+[0;32mI (660) spi_flash: flash io: qio[0m
+[0;33mW (660) i2c: This driver is an old driver, please migrate your application code to adapt `driver/i2c_master.h`[0m
+[0;32mI (661) sleep: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (661) sleep: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (661) coexist: coex firmware version: cbb41d7[0m
+[0;32mI (662) coexist: coexist rom version e7ae62f[0m
+[0;32mI (662) main_task: Started on CPU0[0m
+[0;32mI (672) main_task: Calling app_main()[0m
+[0;32mI (672) gpio: GPIO[6]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (672) gpio: GPIO[7]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (1672) ADC: calibration scheme version is Curve Fitting[0m
+[0;32mI (1672) ADC: Calibration Success[0m
+[0;32mI (1672) I2C: I2C initialized successfully[0m
+Flash size: 16 MB
+QMI8658 Device ID: 7c
+[0;32mI (1672) SD: Initializing SD card[0m
+[0;32mI (1672) SD: Using SPI peripheral[0m
+[0;32mI (1672) SD: Mounting filesystem[0m
+[0;32mI (1672) gpio: GPIO[14]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (1672) gpio: GPIO[17]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (1672) gpio: GPIO[16]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m
+[0;32mI (1702) SD: Filesystem mounted[0m
+Name: 00000
+Type: SDHC/SDXC
+Speed: 20.00 MHz (limit: 20.00 MHz)
+Size: 15279MB
+CSD: ver=2, sector_size=512, capacity=31291392 read_bl_len=9
+SSR: bus_width=1
+The SPI initialization succeeded.
+LCD communication parameters are set successfully -- SPI
+Install LCD driver of SPD2010
+[0;32mI (2062) SPD2010: Turn off LCD backlight[0m
