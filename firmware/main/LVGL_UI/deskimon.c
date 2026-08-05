@@ -35,11 +35,7 @@ typedef enum {
     EYE_STATE_OOH,
     EYE_STATE_WTF,
     EYE_STATE_LAUGH,
-    EYE_STATE_WINK,
-    EYE_STATE_SKEPTICAL,
-    EYE_STATE_DIZZY,
-    EYE_STATE_LOVE,
-    EYE_STATE_BLACK_HOLE,
+    EYE_STATE_LOVE,    // Triggered after BLUSH (Blush -> Love -> Normal sequence)
     EYE_STATE_MAX
 } eye_state_t;
 
@@ -113,6 +109,7 @@ static uint32_t next_look_time = 3000;
 static float last_accel_x = 0, last_accel_y = 0, last_accel_z = 0;
 static int tap_count = 0;
 static uint32_t last_tap_time = 0;
+static bool s_was_tilted_up = false; // tracks if device was just put down from being held
 
 // Replaced local animation helpers with Spark_Anim_Prop from spark_animation.h
 
@@ -504,12 +501,22 @@ static void logic_timer_cb(lv_timer_t * t)
     }
     else if (tilted_up) {
         idle_time = 0;
+        s_was_tilted_up = true; // remember: device is currently being held
         if (shaking) {
             set_eyes_state(EYE_STATE_CRYING_MOUTH);
         } else if (current_state != EYE_STATE_CRY && current_state != EYE_STATE_CRYING_MOUTH && current_state != EYE_STATE_HAPPY_CRY) {
             set_eyes_state(EYE_STATE_CRY);
         }
     } else {
+        // ---- Transition: device was just put BACK DOWN on desk ----
+        if (s_was_tilted_up) {
+            s_was_tilted_up = false;
+            idle_time = 0;
+            // Angry first (red eyes) — annoyed at being disturbed
+            set_eyes_state(EYE_STATE_ANGRY);
+            // Laugh will trigger automatically via the ANGRY timer (5s -> Insecure is overridden below)
+        }
+
         if (move_amt > 0.05f) {
             idle_time = 0;
             if (current_state == EYE_STATE_SLEEP || current_state == EYE_STATE_EYES_CLOSED) {
@@ -545,13 +552,43 @@ static void logic_timer_cb(lv_timer_t * t)
         if (state_time > 4500) set_eyes_state(EYE_STATE_BORED);
     }
     else if (current_state == EYE_STATE_BORED) {
-        if (idle_time > 60000) set_eyes_state(EYE_STATE_SLEEP);
+        // After 40s of boredom -> Solar System screensaver (as user requested!)
+        if (idle_time > 40000) set_eyes_state((eye_state_t)SPARK_FACE_SOLAR_SYSTEM);
+    }
+    else if (current_state == (eye_state_t)SPARK_FACE_SOLAR_SYSTEM) {
+        // Any slight movement wakes it from screensaver
+        if (move_amt > 0.08f) {
+            idle_time = 0;
+            set_eyes_state(EYE_STATE_CHILL);
+        }
+        // After 30s of screensaver -> go to sleep
+        else if (state_time > 30000) {
+            set_eyes_state(EYE_STATE_SLEEP);
+        }
     }
     else if (current_state == EYE_STATE_SLEEP) {
         if (state_time > 10000) set_eyes_state(EYE_STATE_EYES_CLOSED);
     }
-    else if (current_state == EYE_STATE_HAPPY || current_state == EYE_STATE_BLUSH || current_state == EYE_STATE_CRY || current_state == EYE_STATE_IGNORE) {
+    else if (current_state == (eye_state_t)SPARK_FACE_PORTAL_TRAVEL) {
+        // Portal Travel during normal idle: show for 8s then return to normal
+        if (move_amt > 0.08f) {
+            // Any movement interrupts portal travel
+            idle_time = 0;
+            set_eyes_state(EYE_STATE_NORMAL);
+        } else if (state_time > 8000) {
+            set_eyes_state(EYE_STATE_NORMAL);
+        }
+    }
+    else if (current_state == EYE_STATE_HAPPY || current_state == EYE_STATE_CRY || current_state == EYE_STATE_IGNORE) {
         if (state_time > 3500) set_eyes_state(EYE_STATE_NORMAL);
+    }
+    else if (current_state == EYE_STATE_BLUSH) {
+        // Blush -> Love after 2s (when LOVE intent triggered)
+        if (state_time > 2000) set_eyes_state(EYE_STATE_LOVE);
+    }
+    else if (current_state == EYE_STATE_LOVE) {
+        // Love face stays for 3s then returns to normal
+        if (state_time > 3000) set_eyes_state(EYE_STATE_NORMAL);
     }
     else if (current_state == EYE_STATE_HAPPY_CRY) {
         if (state_time > 3500) set_eyes_state(EYE_STATE_HAPPY); // Comforted -> transitions to happy first!
@@ -563,7 +600,13 @@ static void logic_timer_cb(lv_timer_t * t)
         if (state_time > 2500) set_eyes_state(EYE_STATE_NORMAL);
     }
     else if (current_state == EYE_STATE_ANGRY) {
-        if (state_time > 5000) set_eyes_state(EYE_STATE_INSECURE);
+        // After being put down: 2.5s of Angry (red eyes) -> Laugh (can't stay mad!)
+        // Normal angry (from shake/tap): 5s -> Insecure
+        if (state_time > 2500 && state_time <= 5000) {
+            set_eyes_state(EYE_STATE_LAUGH);
+        } else if (state_time > 5000) {
+            set_eyes_state(EYE_STATE_INSECURE);
+        }
     }
     else if (current_state == EYE_STATE_CRYING_MOUTH) {
         if (state_time > 4500) {

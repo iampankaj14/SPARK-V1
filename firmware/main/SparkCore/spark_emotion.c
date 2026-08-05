@@ -59,7 +59,7 @@ void Spark_Emotion_ProcessIntent(const char *intent_name) {
     } else if (strstr(intent_name, "BORED") || strstr(intent_name, "TIRED")) {
         emotion = "bored";
     } else if (strstr(intent_name, "LOVE") || strstr(intent_name, "I_LIKE_YOU")) {
-        emotion = "blush";
+        emotion = "blush"; // blush first, then auto-transitions to love face after 2s
     }
     
     ESP_LOGI(TAG, "Intent matched: %s -> Emotion: %s", intent_name, emotion);

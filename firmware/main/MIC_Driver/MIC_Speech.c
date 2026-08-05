@@ -46,6 +46,7 @@ uint8_t LCD_Backlight_original = 0;
 static volatile conv_state_t s_conv_state = CONV_STATE_IDLE;
 static TimerHandle_t s_followup_timer = NULL;
 static uint32_t s_processing_start_tick = 0;
+static uint32_t s_listening_start_tick = 0;
 
 // ============================================================
 // VOICE RECORDING STATE
@@ -162,6 +163,7 @@ static void transition_to_idle(void)
     s_record_index = 0;
     s_consecutive_speech_samples = 0;
     s_settling_active = false;
+    s_listening_start_tick = 0;
 
     // Re-enable wake word detection
     if (MIC_Speech.afe_handle && MIC_Speech.afe_data) {
@@ -497,7 +499,8 @@ static void detect_hander(AppSpeech *self)
                         // Visual + cloud feedback
                         LCD_Backlight = 35;
                         Cloud_SetListeningState(true);
-                        Spark_Emotion_Set("listening");
+                        Spark_Emotion_Set("ooh");
+                        s_listening_start_tick = xTaskGetTickCount();
                         
                         // Transition directly to LISTENING and start recording
                         MIC_SetConvState(CONV_STATE_LISTENING);
@@ -553,6 +556,11 @@ static void detect_hander(AppSpeech *self)
         // LISTENING: Recording in progress (handled by feed_handler)
         // ----------------------------------------------------------
         case CONV_STATE_LISTENING: {
+            if (s_listening_start_tick > 0 && 
+                ((xTaskGetTickCount() - s_listening_start_tick) * portTICK_PERIOD_MS > 800)) {
+                Spark_Emotion_Set("happy");
+                s_listening_start_tick = 0;
+            }
             // Must continually fetch from AFE so the feed_handler doesn't deadlock!
             afe_fetch_result_t* res = self->afe_handle->fetch(afe_data); 
             if (!res || res->ret_value == ESP_FAIL) {

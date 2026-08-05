@@ -772,10 +772,11 @@ esp_err_t Cloud_StartLinkingTask(void)
     return ESP_OK;
 }
 
-esp_err_t Cloud_SetListeningState(bool is_listening)
+// Fire-and-forget task for updating listening state (non-blocking)
+static void listening_state_task(void *pvParameters)
 {
+    bool is_listening = (bool)(intptr_t)pvParameters;
     const device_config_t *config = Provisioning_GetConfig();
-    if (strlen(config->device_id) == 0) return ESP_ERR_INVALID_STATE;
 
     char *url = heap_caps_malloc(256, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     char *post_data = heap_caps_malloc(128, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -784,7 +785,8 @@ esp_err_t Cloud_SetListeningState(bool is_listening)
         heap_caps_free(url);
         heap_caps_free(post_data);
         heap_caps_free(auth_header);
-        return ESP_ERR_NO_MEM;
+        vTaskDelete(NULL);
+        return;
     }
 
     snprintf(url, 256, "%s/rest/v1/devices?id=eq.%s", config->supabase_url, config->device_id);
@@ -793,39 +795,43 @@ esp_err_t Cloud_SetListeningState(bool is_listening)
     esp_http_client_config_t http_cfg = {
         .url = url,
         .method = HTTP_METHOD_PATCH,
-        .timeout_ms = 8000,
+        .timeout_ms = 5000,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .buffer_size_tx = 512,
-        .buffer_size = 4096
+        .buffer_size = 2048
     };
     
     esp_http_client_handle_t client = esp_http_client_init(&http_cfg);
-    if (!client) {
-        heap_caps_free(url);
-        heap_caps_free(post_data);
-        heap_caps_free(auth_header);
-        return ESP_FAIL;
+    if (client) {
+        esp_http_client_set_header(client, "Content-Type", "application/json");
+        esp_http_client_set_header(client, "apikey", config->supabase_anon_key);
+        snprintf(auth_header, 600, "Bearer %s", config->auth_token);
+        esp_http_client_set_header(client, "Authorization", auth_header);
+        esp_http_client_set_post_field(client, post_data, strlen(post_data));
+
+        esp_err_t err = esp_http_client_perform(client);
+        if (err == ESP_OK) {
+            ESP_LOGD(TAG, "Listening state set to %s (async). Status: %d", 
+                     is_listening ? "true" : "false", esp_http_client_get_status_code(client));
+        }
+        esp_http_client_cleanup(client);
     }
 
-    esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_header(client, "apikey", config->supabase_anon_key);
-    snprintf(auth_header, 600, "Bearer %s", config->auth_token);
-    esp_http_client_set_header(client, "Authorization", auth_header);
-    esp_http_client_set_post_field(client, post_data, strlen(post_data));
-
-    esp_err_t err = esp_http_client_perform(client);
-    if (err == ESP_OK) {
-        int status_code = esp_http_client_get_status_code(client);
-        ESP_LOGI(TAG, "Listening state set to %s. Status: %d", is_listening ? "true" : "false", status_code);
-    } else {
-        ESP_LOGE(TAG, "Failed to update listening state: %s", esp_err_to_name(err));
-    }
-
-    esp_http_client_cleanup(client);
     heap_caps_free(url);
     heap_caps_free(post_data);
     heap_caps_free(auth_header);
-    return err;
+    vTaskDelete(NULL);
+}
+
+esp_err_t Cloud_SetListeningState(bool is_listening)
+{
+    const device_config_t *config = Provisioning_GetConfig();
+    if (strlen(config->device_id) == 0) return ESP_ERR_INVALID_STATE;
+
+    // Fire-and-forget: don't block the voice pipeline for a cosmetic dashboard update
+    xTaskCreatePinnedToCore(listening_state_task, "listen_state", 4096, 
+                            (void *)(intptr_t)is_listening, 2, NULL, 1);
+    return ESP_OK;
 }
 
 void Cloud_SetPlayBuffer(uint8_t *buf)
