@@ -563,7 +563,15 @@ static void parse_supabase_realtime_msg(const char *msg, size_t len)
                                     ESP_LOGE(TAG, "Failed to create static audio download task");
                                     free(args);
                                 } else {
-                                    Spark_Emotion_Set("happy");
+                                    cJSON *intent_item = cJSON_GetObjectItem(record, "intent_name");
+                                    if (!intent_item) {
+                                        intent_item = cJSON_GetObjectItem(record, "intent");
+                                    }
+                                    if (intent_item && intent_item->valuestring && strlen(intent_item->valuestring) > 0) {
+                                        Spark_Emotion_ProcessIntent(intent_item->valuestring);
+                                    } else {
+                                        Spark_Emotion_Set("happy");
+                                    }
                                 }
                             }
                         }

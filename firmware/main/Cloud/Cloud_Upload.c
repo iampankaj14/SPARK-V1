@@ -332,6 +332,7 @@ typedef struct {
     uint8_t *response_buf;
     int response_len;
     int response_max;
+    char intent_name[64];
 } direct_voice_ctx_t;
 
 static esp_err_t direct_voice_http_event(esp_http_client_event_t *evt)
@@ -342,6 +343,13 @@ static esp_err_t direct_voice_http_event(esp_http_client_event_t *evt)
     switch (evt->event_id) {
         case HTTP_EVENT_HEADER_SENT:
             ESP_LOGI("LATENCY_AUDIT", "[LATENCY] HTTP Upload End: %lld ms", esp_timer_get_time() / 1000);
+            break;
+        case HTTP_EVENT_ON_HEADER:
+            if (strcasecmp(evt->header_key, "X-Intent-Name") == 0) {
+                strncpy(ctx->intent_name, evt->header_value, sizeof(ctx->intent_name) - 1);
+                ctx->intent_name[sizeof(ctx->intent_name) - 1] = '\0';
+                ESP_LOGI(TAG, "Extracted intent from header: %s", ctx->intent_name);
+            }
             break;
         case HTTP_EVENT_ON_DATA:
             if (ctx->response_len == 0) {
@@ -415,7 +423,8 @@ esp_err_t Cloud_UploadVoiceDirect(const int16_t *pcm_data, uint32_t num_samples)
     direct_voice_ctx_t ctx = {
         .response_buf = response_buf,
         .response_len = 0,
-        .response_max = (int)max_response_size
+        .response_max = (int)max_response_size,
+        .intent_name = {0}
     };
 
     // 3. Build URL: <server_url>/api/voice
@@ -526,7 +535,11 @@ esp_err_t Cloud_UploadVoiceDirect(const int16_t *pcm_data, uint32_t num_samples)
     ESP_LOGI(TAG, "Direct voice success! Playing %d byte MP3 response immediately.", ctx.response_len);
     
     MIC_SetConvState(CONV_STATE_SPEAKING);
-    Spark_Emotion_Set("happy");
+    if (strlen(ctx.intent_name) > 0) {
+        Spark_Emotion_ProcessIntent(ctx.intent_name);
+    } else {
+        Spark_Emotion_Set("happy");
+    }
     Play_Music_From_Buffer(response_buf, ctx.response_len);
 
     // NOTE: response_buf ownership transfers to the audio player.
