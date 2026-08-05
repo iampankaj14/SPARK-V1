@@ -477,50 +477,11 @@ static void logic_timer_cb(lv_timer_t * t)
         }
     }
 
-    // ============ DEMO MODE: Cycle through ALL faces one by one ============
-    // Face sequence: NORMAL → HAPPY → PORTAL_TRAVEL → NORMAL → ANGRY → CRY → BORED → SLEEP
-    //                → BLUSH → CHILL → INTEREST → OOH → WTF → LAUGH → IGNORE → SOLAR_SYSTEM
-    static const eye_state_t demo_sequence[] = {
-        EYE_STATE_NORMAL,                             // 0 - baseline smooth movement
-        (eye_state_t)SPARK_FACE_HAPPY,                // 1
-        (eye_state_t)SPARK_FACE_PORTAL_TRAVEL,        // 2 - test lag here vs others
-        EYE_STATE_NORMAL,                             // 3 - back to normal after portal
-        (eye_state_t)SPARK_FACE_ANGRY,                // 4
-        (eye_state_t)SPARK_FACE_CRY,                  // 5
-        (eye_state_t)SPARK_FACE_BORED,                // 6
-        (eye_state_t)SPARK_FACE_BORING,               // 7
-        (eye_state_t)SPARK_FACE_SLEEP,                // 8
-        (eye_state_t)SPARK_FACE_BLUSH,                // 9
-        (eye_state_t)SPARK_FACE_CHILL,                // 10
-        (eye_state_t)SPARK_FACE_INTEREST,             // 11
-        (eye_state_t)SPARK_FACE_OOH,                  // 12
-        (eye_state_t)SPARK_FACE_WTF,                  // 13
-        (eye_state_t)SPARK_FACE_LAUGH,                // 14
-        (eye_state_t)SPARK_FACE_IGNORE,               // 15
-        (eye_state_t)SPARK_FACE_INSECURE,             // 16
-        (eye_state_t)SPARK_FACE_SOLAR_SYSTEM,         // 17
-    };
-    static const int demo_count = sizeof(demo_sequence) / sizeof(demo_sequence[0]);
-    static int demo_index = 0;
-    static uint32_t demo_timer = 0;
-
-    // Demo auto-advance: switch face every 4 seconds (portal travel gets 15s)
-    if (demo_index >= 0 && demo_index < demo_count) {
-        demo_timer += 100;
-        int hold_time = 4000; // 4 seconds per face
-        if (demo_sequence[demo_index] == (eye_state_t)SPARK_FACE_PORTAL_TRAVEL) hold_time = 15000;
-        if (demo_sequence[demo_index] == (eye_state_t)SPARK_FACE_SOLAR_SYSTEM) hold_time = 8000;
-        if (demo_sequence[demo_index] == EYE_STATE_NORMAL) hold_time = 5000;
-
-        if (demo_timer >= (uint32_t)hold_time) {
-            demo_timer = 0;
-            demo_index++;
-            if (demo_index >= demo_count) {
-                demo_index = 0; // LOOP the demo
-            }
-            set_eyes_state(demo_sequence[demo_index]);
+    if (current_state == EYE_STATE_BOOT) {
+        if (state_time >= 1000) {
+            set_eyes_state(EYE_STATE_NORMAL);
         }
-        return; // Skip all normal logic during demo
+        return;
     }
 
 

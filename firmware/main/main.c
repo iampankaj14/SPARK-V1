@@ -62,7 +62,7 @@ void app_main(void)
     
     LVGL_Init();
     Audio_Init();
-    // MIC_Speech_init(); // Disabled for UI testing to stop AFE spam
+    MIC_Speech_init(); // Turn mic back on for normal user interaction
     
     // Initialize Spark Core Managers
     Spark_State_Init();
@@ -78,9 +78,6 @@ void app_main(void)
     // Initialize Cinematic Faces
     Spark_SolarSystem_Init(lv_scr_act());
     Spark_PortalTravel_Init(lv_scr_act());
-
-    // Force boot directly to the new Face for testing
-    Spark_Face_Set(SPARK_FACE_PORTAL_TRAVEL);
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10));
