@@ -12,7 +12,8 @@
 #include "spark_emotion.h"
 #include "BAT_Driver.h"
 #include "esp_wifi.h"
-
+#include "mbedtls/base64.h"
+#include "cJSON.h"
 
 static const char *TAG = "CloudUpload";
 
@@ -368,8 +369,312 @@ static esp_err_t direct_voice_http_event(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+static esp_err_t Cloud_ProcessVoiceDirectAPIs(const int16_t *pcm_data, uint32_t num_samples)
+{
+#if defined(CONFIG_DESKIMON_GEMINI_API_KEY) && strlen(CONFIG_DESKIMON_GEMINI_API_KEY) > 0
+    ESP_LOGI(TAG, "Starting Direct ESP32-to-API processing (Gemini + TTS)...");
+
+    // 1. Build WAV in RAM
+    uint32_t data_size = num_samples * sizeof(int16_t);
+    uint32_t wav_size = sizeof(wav_header_t) + data_size;
+
+    char *wav_buf = heap_caps_malloc(wav_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!wav_buf) {
+        ESP_LOGE(TAG, "Failed to allocate %d bytes in SPIRAM for WAV buffer", (int)wav_size);
+        return ESP_ERR_NO_MEM;
+    }
+
+    wav_header_t *header = (wav_header_t *)wav_buf;
+    memcpy(header->riff, "RIFF", 4);
+    header->overall_size = data_size + 36;
+    memcpy(header->wave, "WAVE", 4);
+    memcpy(header->fmt_chunk_marker, "fmt ", 4);
+    header->length_of_fmt = 16;
+    header->format_type = 1;
+    header->channels = 1;
+    header->sample_rate = 16000;
+    header->byterate = 16000 * 1 * 2;
+    header->block_align = 1 * 2;
+    header->bits_per_sample = 16;
+    memcpy(header->data_chunk_header, "data", 4);
+    header->data_size = data_size;
+    memcpy(wav_buf + sizeof(wav_header_t), pcm_data, data_size);
+
+    // 2. Base64 Encode WAV buffer
+    size_t base64_len = 0;
+    mbedtls_base64_encode(NULL, 0, &base64_len, (const unsigned char *)wav_buf, wav_size);
+    char *base64_buf = heap_caps_malloc(base64_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!base64_buf) {
+        ESP_LOGE(TAG, "Failed to allocate Base64 buffer (%d bytes)", (int)base64_len);
+        heap_caps_free(wav_buf);
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t out_len = 0;
+    mbedtls_base64_encode((unsigned char *)base64_buf, base64_len + 1, &out_len, (const unsigned char *)wav_buf, wav_size);
+    base64_buf[out_len] = '\0';
+    heap_caps_free(wav_buf); // Free raw WAV to save RAM
+
+    ESP_LOGI(TAG, "Encoded %d bytes WAV into %d bytes Base64", (int)wav_size, (int)out_len);
+
+    // 3. Build JSON payload for Gemini API
+    cJSON *root = cJSON_CreateObject();
+    cJSON *contents = cJSON_CreateArray();
+    cJSON *content_item = cJSON_CreateObject();
+    cJSON *parts = cJSON_CreateArray();
+
+    cJSON *part_audio = cJSON_CreateObject();
+    cJSON *inline_data = cJSON_CreateObject();
+    cJSON_AddStringToObject(inline_data, "mimeType", "audio/wav");
+    cJSON_AddStringToObject(inline_data, "data", base64_buf);
+    cJSON_AddItemToObject(part_audio, "inlineData", inline_data);
+    cJSON_AddItemToArray(parts, part_audio);
+
+    cJSON *part_text = cJSON_CreateObject();
+    cJSON_AddStringToObject(part_text, "text", 
+        "You are Spark, a smart cute companion robot. Listen to the user audio and respond.\n"
+        "Return ONLY a JSON object: {\"reply\": \"your reply\", \"intent\": \"GREETING/JOKE/ANGRY/LOVE/SAD/NORMAL\"}");
+    cJSON_AddItemToArray(parts, part_text);
+
+    cJSON_AddItemToObject(content_item, "parts", parts);
+    cJSON_AddItemToArray(contents, content_item);
+    cJSON_AddItemToObject(root, "contents", contents);
+
+    char *json_post_body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    heap_caps_free(base64_buf);
+
+    if (!json_post_body) {
+        ESP_LOGE(TAG, "Failed to create Gemini JSON post body");
+        return ESP_FAIL;
+    }
+
+    // 4. Send HTTP POST to Gemini API
+    size_t gemini_res_max = 32 * 1024;
+    uint8_t *gemini_res_buf = heap_caps_malloc(gemini_res_max, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!gemini_res_buf) {
+        cJSON_free(json_post_body);
+        return ESP_ERR_NO_MEM;
+    }
+
+    direct_voice_ctx_t gemini_ctx = {
+        .response_buf = gemini_res_buf,
+        .response_len = 0,
+        .response_max = (int)gemini_res_max,
+        .intent_name = {0}
+    };
+
+    char gemini_url[256];
+    snprintf(gemini_url, sizeof(gemini_url),
+             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=%s",
+             CONFIG_DESKIMON_GEMINI_API_KEY);
+
+    esp_http_client_config_t gemini_http_cfg = {
+        .url = gemini_url,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 20000,
+        .event_handler = direct_voice_http_event,
+        .user_data = &gemini_ctx,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .buffer_size_tx = 4096,
+        .buffer_size = 4096,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&gemini_http_cfg);
+    if (!client) {
+        cJSON_free(json_post_body);
+        heap_caps_free(gemini_res_buf);
+        return ESP_FAIL;
+    }
+
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, json_post_body, strlen(json_post_body));
+
+    ESP_LOGI(TAG, "Sending audio to Gemini API...");
+    esp_err_t err = esp_http_client_perform(client);
+    int status_code = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+    cJSON_free(json_post_body);
+
+    if (err != ESP_OK || status_code != 200 || gemini_ctx.response_len == 0) {
+        ESP_LOGE(TAG, "Gemini API request failed: HTTP %d", status_code);
+        heap_caps_free(gemini_res_buf);
+        return ESP_FAIL;
+    }
+
+    gemini_res_buf[gemini_ctx.response_len] = '\0';
+    ESP_LOGI(TAG, "Gemini API raw response (%d bytes)", gemini_ctx.response_len);
+
+    cJSON *g_root = cJSON_Parse((char *)gemini_res_buf);
+    heap_caps_free(gemini_res_buf);
+
+    if (!g_root) {
+        ESP_LOGE(TAG, "Failed to parse Gemini root JSON");
+        return ESP_FAIL;
+    }
+
+    char reply_text[256] = {0};
+    char intent_text[64] = "NORMAL";
+
+    cJSON *candidates = cJSON_GetObjectItem(g_root, "candidates");
+    if (candidates && cJSON_GetArraySize(candidates) > 0) {
+        cJSON *cand0 = cJSON_GetArrayItem(candidates, 0);
+        cJSON *content = cJSON_GetObjectItem(cand0, "content");
+        if (content) {
+            cJSON *parts_arr = cJSON_GetObjectItem(content, "parts");
+            if (parts_arr && cJSON_GetArraySize(parts_arr) > 0) {
+                cJSON *part0 = cJSON_GetArrayItem(parts_arr, 0);
+                cJSON *text_obj = cJSON_GetObjectItem(part0, "text");
+                if (text_obj && text_obj->valuestring) {
+                    char *start = strchr(text_obj->valuestring, '{');
+                    char *end = strrchr(text_obj->valuestring, '}');
+                    if (start && end && end > start) {
+                        size_t len = end - start + 1;
+                        char *sub_json = heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                        if (sub_json) {
+                            memcpy(sub_json, start, len);
+                            sub_json[len] = '\0';
+                            cJSON *inner = cJSON_Parse(sub_json);
+                            heap_caps_free(sub_json);
+
+                            if (inner) {
+                                cJSON *r_item = cJSON_GetObjectItem(inner, "reply");
+                                cJSON *i_item = cJSON_GetObjectItem(inner, "intent");
+                                if (r_item && r_item->valuestring) {
+                                    strncpy(reply_text, r_item->valuestring, sizeof(reply_text) - 1);
+                                }
+                                if (i_item && i_item->valuestring) {
+                                    strncpy(intent_text, i_item->valuestring, sizeof(intent_text) - 1);
+                                }
+                                cJSON_Delete(inner);
+                            }
+                        }
+                    } else {
+                        strncpy(reply_text, text_obj->valuestring, sizeof(reply_text) - 1);
+                    }
+                }
+            }
+        }
+    }
+    cJSON_Delete(g_root);
+
+    if (strlen(reply_text) == 0) {
+        ESP_LOGE(TAG, "No valid reply text extracted from Gemini");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Gemini processed! Reply: \"%s\", Intent: \"%s\"", reply_text, intent_text);
+
+    // 5. Call TTS API
+    size_t max_mp3_size = 128 * 1024;
+    uint8_t *mp3_buf = heap_caps_malloc(max_mp3_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!mp3_buf) return ESP_ERR_NO_MEM;
+
+    direct_voice_ctx_t tts_ctx = {
+        .response_buf = mp3_buf,
+        .response_len = 0,
+        .response_max = (int)max_mp3_size,
+        .intent_name = {0}
+    };
+
+    char tts_url[256];
+#if defined(CONFIG_DESKIMON_TTS_ELEVENLABS) && defined(CONFIG_DESKIMON_ELEVENLABS_API_KEY)
+    snprintf(tts_url, sizeof(tts_url), "https://api.elevenlabs.io/v1/text-to-speech/%s",
+             CONFIG_DESKIMON_ELEVENLABS_VOICE_ID);
+    
+    cJSON *tts_root = cJSON_CreateObject();
+    cJSON_AddStringToObject(tts_root, "text", reply_text);
+    cJSON_AddStringToObject(tts_root, "model_id", "eleven_monolingual_v1");
+    char *tts_post_body = cJSON_PrintUnformatted(tts_root);
+    cJSON_Delete(tts_root);
+
+    esp_http_client_config_t tts_cfg = {
+        .url = tts_url,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 15000,
+        .event_handler = direct_voice_http_event,
+        .user_data = &tts_ctx,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .buffer_size_tx = 1024,
+        .buffer_size = 4096,
+    };
+
+    client = esp_http_client_init(&tts_cfg);
+    if (!client) {
+        cJSON_free(tts_post_body);
+        heap_caps_free(mp3_buf);
+        return ESP_FAIL;
+    }
+
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_header(client, "xi-api-key", CONFIG_DESKIMON_ELEVENLABS_API_KEY);
+    esp_http_client_set_header(client, "accept", "audio/mpeg");
+    esp_http_client_set_post_field(client, tts_post_body, strlen(tts_post_body));
+
+    ESP_LOGI(TAG, "Calling ElevenLabs TTS API...");
+    err = esp_http_client_perform(client);
+    status_code = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+    cJSON_free(tts_post_body);
+
+#elif defined(CONFIG_DESKIMON_TTS_VOICERSS) && defined(CONFIG_DESKIMON_VOICERSS_API_KEY)
+    snprintf(tts_url, sizeof(tts_url), "https://api.voicerss.org/?key=%s&hl=en-us&c=MP3&f=16khz_16bit_mono&src=%s",
+             CONFIG_DESKIMON_VOICERSS_API_KEY, reply_text);
+
+    esp_http_client_config_t tts_cfg = {
+        .url = tts_url,
+        .method = HTTP_METHOD_GET,
+        .timeout_ms = 15000,
+        .event_handler = direct_voice_http_event,
+        .user_data = &tts_ctx,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .buffer_size = 4096,
+    };
+
+    client = esp_http_client_init(&tts_cfg);
+    if (!client) {
+        heap_caps_free(mp3_buf);
+        return ESP_FAIL;
+    }
+    err = esp_http_client_perform(client);
+    status_code = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+#else
+    ESP_LOGE(TAG, "No TTS provider or API key configured");
+    heap_caps_free(mp3_buf);
+    return ESP_FAIL;
+#endif
+
+    if (err != ESP_OK || status_code != 200 || tts_ctx.response_len == 0) {
+        ESP_LOGE(TAG, "TTS API request failed: HTTP %d", status_code);
+        heap_caps_free(mp3_buf);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Direct API pipeline complete! Received %d bytes MP3.", tts_ctx.response_len);
+
+    // 6. Play MP3 and set emotion
+    MIC_SetConvState(CONV_STATE_SPEAKING);
+    Spark_Emotion_ProcessIntent(intent_text);
+    Play_Music_From_Buffer(mp3_buf, tts_ctx.response_len);
+    Cloud_SetPlayBuffer(mp3_buf);
+
+    return ESP_OK;
+#else
+    return ESP_FAIL;
+#endif
+}
+
 esp_err_t Cloud_UploadVoiceDirect(const int16_t *pcm_data, uint32_t num_samples)
 {
+#if defined(CONFIG_DESKIMON_DIRECT_APIS) && defined(CONFIG_DESKIMON_GEMINI_API_KEY)
+    if (strlen(CONFIG_DESKIMON_GEMINI_API_KEY) > 0) {
+        esp_err_t api_err = Cloud_ProcessVoiceDirectAPIs(pcm_data, num_samples);
+        if (api_err == ESP_OK) return ESP_OK;
+        ESP_LOGW(TAG, "Direct API mode failed/fallback to custom server / Supabase");
+    }
+#endif
+
     // If no direct server URL configured, fall back to Supabase path
     if (!s_voice_api_url || strlen(s_voice_api_url) == 0) {
         ESP_LOGI(TAG, "No Voice API URL configured. Using Supabase fallback.");
