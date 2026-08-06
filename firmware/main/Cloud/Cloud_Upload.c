@@ -371,7 +371,8 @@ static esp_err_t direct_voice_http_event(esp_http_client_event_t *evt)
 
 static esp_err_t Cloud_ProcessVoiceDirectAPIs(const int16_t *pcm_data, uint32_t num_samples)
 {
-#if defined(CONFIG_DESKIMON_GEMINI_API_KEY) && strlen(CONFIG_DESKIMON_GEMINI_API_KEY) > 0
+#if defined(CONFIG_DESKIMON_GEMINI_API_KEY)
+    if (strlen(CONFIG_DESKIMON_GEMINI_API_KEY) == 0) return ESP_FAIL;
     ESP_LOGI(TAG, "Starting Direct ESP32-to-API processing (Gemini + TTS)...");
 
     // 1. Build WAV in RAM
