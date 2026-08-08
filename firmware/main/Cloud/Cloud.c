@@ -755,6 +755,11 @@ static void cloud_link_task(void *pvParameters)
 
 esp_err_t Cloud_StartLinkingTask(void)
 {
+#ifdef CONFIG_DESKIMON_DIRECT_APIS
+    ESP_LOGI(TAG, "Direct APIs enabled. Bypassing Supabase cloud link task.");
+    return ESP_OK;
+#endif
+
     TaskHandle_t handle = NULL;
     BaseType_t ret = xTaskCreatePinnedToCore(
         cloud_link_task,

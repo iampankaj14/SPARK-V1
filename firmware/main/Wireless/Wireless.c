@@ -51,6 +51,9 @@ void Wireless_Init(void)
             ESP_ERROR_CHECK(Provisioning_StartCaptivePortal());
         } else {
             // Wi-Fi connected successfully!
+#ifdef CONFIG_DESKIMON_DIRECT_APIS
+            ESP_LOGI("Wireless", "Direct APIs enabled. Bypassing Supabase linking and realtime DB.");
+#else
             if (Provisioning_GetState() == PROV_STATE_FULLY_PROVISIONED) {
                 ESP_LOGI("Wireless", "Device fully provisioned. Starting database sync...");
                 Cloud_Start();
@@ -64,6 +67,7 @@ void Wireless_Init(void)
                 ESP_LOGI("Wireless", "Wi-Fi connected. Waiting for device to be linked in Supabase...");
                 Cloud_StartLinkingTask();
             }
+#endif
         }
     }
 }

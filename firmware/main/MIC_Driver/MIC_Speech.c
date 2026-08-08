@@ -22,7 +22,8 @@
 #include "freertos/timers.h"
 
 #define I2S_CHANNEL_NUM 1
-#define USE_MULTINET_AS_WAKEWORD 1
+// Set to 0 to use standard WakeNet wake-word model ("Hi ESP" / "Hey Spark")
+#define USE_MULTINET_AS_WAKEWORD 0
 
 // Follow-up listening configuration
 #define FOLLOWUP_TIMEOUT_MS      15000   // 15-second follow-up window
@@ -265,17 +266,18 @@ static void finish_recording_and_upload(uint32_t num_samples)
 // I2S INITIALIZATION
 // ============================================================
 
+#include "TCA9554PWR.h"
+
 static esp_err_t i2s_init(i2s_port_t i2s_num, uint32_t sample_rate, int channel_format, int bits_per_chan)
 {
     esp_err_t ret_val = ESP_OK;
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(i2s_num, I2S_ROLE_MASTER);
-
     ret_val |= i2s_new_channel(&chan_cfg, NULL, &rx_handle);
+
     i2s_std_config_t std_cfg = I2S_CONFIG_DEFAULT(16000, I2S_SLOT_MODE_MONO, I2S_DATA_BIT_WIDTH_32BIT);
-    // std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
-    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_RIGHT;
-    // std_cfg.clk_cfg.mclk_multiple = EXAMPLE_MCLK_MULTIPLE;   //The default is I2S_MCLK_MULTIPLE_256. If not using 24-bit data width, 256 should be enough
+    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_BOTH; // Accept audio on both Left and Right I2S slots
+    // std_cfg.clk_cfg.mclk_multiple = EXAMPLE_MCLK_MULTIPLE;
     ret_val |= i2s_channel_init_std_mode(rx_handle, &std_cfg);
     ret_val |= i2s_channel_enable(rx_handle);
 
@@ -294,22 +296,31 @@ static void feed_handler(AppSpeech *self)
     size_t samp_len_bytes = samp_len * I2S_CHANNEL_NUM * sizeof(int32_t);
     int32_t *i2s_buff = (int32_t *)malloc(samp_len_bytes);
     assert(i2s_buff);
-    // Properly typed 16-bit buffer for AFE feed — avoids int32->int16 cast corruption
+    // Properly typed 16-bit buffer for AFE feed
     int16_t *feed_buf = (int16_t *)malloc(samp_len * sizeof(int16_t));
     assert(feed_buf);
     size_t bytes_read;
 
     // VAD state for recording
     static uint32_t consecutive_silence_samples = 0;
+    static uint32_t log_counter = 0;
 
     while (true)
     {
         i2s_channel_read(rx_handle, i2s_buff, samp_len_bytes, &bytes_read, portMAX_DELAY);
 
-        // Convert 32-bit I2S samples to proper 16-bit samples
+        int16_t max_amp = 0;
+        // Convert 32-bit I2S MEMS samples (24-bit MSB aligned) to 16-bit signed PCM
+        // Shift >> 14 gives proper dynamic range: silence ~50-150, speech ~500-4000, shout ~4000-8000
         for (int i = 0; i < samp_len; ++i)
         {
             feed_buf[i] = (int16_t)(i2s_buff[i] >> 14);
+            int16_t abs_val = feed_buf[i] < 0 ? -feed_buf[i] : feed_buf[i];
+            if (abs_val > max_amp) max_amp = abs_val;
+        }
+
+        if (++log_counter % 100 == 0) { // Log every ~2 seconds
+            ESP_LOGI("MIC_AUDIO", "Amplitude: %d", max_amp);
         }
 
         // ============================================================
@@ -510,12 +521,35 @@ static void detect_hander(AppSpeech *self)
                 }
             }
 #else
+            // WakeNet-only wake word detection ("Hi ESP")
+            // WakeNet runs INSIDE afe->fetch() and is designed for lightweight always-on detection.
             if (res->wakeup_state == WAKENET_DETECTED) {
-                ESP_LOGI(TAG, "=== WAKEWORD DETECTED ===\n");
+                ESP_LOGI(TAG, "=== WAKEWORD DETECTED (WakeNet 'Hi ESP') ===");
                 multinet->clean(model_data);
                 LCD_Backlight_original = LCD_Backlight;
-                MIC_SetConvState(CONV_STATE_WAKE_DETECTED);
-                ESP_LOGI(TAG, "State: IDLE -> WAKE_DETECTED");
+                
+                // Disable wake word detection for conversation duration
+                self->afe_handle->disable_wakenet(afe_data);
+                self->detected = true;
+                
+                // Visual + cloud feedback
+                LCD_Backlight = 35;
+                Cloud_SetListeningState(true);
+                Spark_Emotion_Set("ooh");
+                s_listening_start_tick = xTaskGetTickCount();
+                
+                // Transition directly to LISTENING and start recording
+                MIC_SetConvState(CONV_STATE_LISTENING);
+                start_recording();
+                ESP_LOGI(TAG, "State: IDLE -> LISTENING (via WakeNet 'Hi ESP')");
+            }
+            // Diagnostic: log VAD state periodically to verify AFE is processing audio
+            {
+                static uint32_t vad_log_counter = 0;
+                if (++vad_log_counter % 200 == 0) {
+                    ESP_LOGI(TAG, "AFE VAD state: %d (0=silence, 1=speech), wakeup: %d",
+                             res->vad_state, res->wakeup_state);
+                }
             }
 #endif
             break;
@@ -721,6 +755,7 @@ void MIC_Speech_init()
     MIC_Speech.detected = false;
     MIC_Speech.command = COMMAND_TIMEOUT;
     MIC_Speech.models = esp_srmodel_init("model");
+    Set_EXIOS(0xFF); // Enable all IO Expander pins (Mic Power / Hardware EN)
     i2s_init(I2S_NUM_1, 16000, 2, 32);
     // sd_card_mount("/sdcard");
     afe_config_t afe_config = {
@@ -734,13 +769,13 @@ void MIC_Speech_init()
         .vad_mode = VAD_MODE_3,
         .wakenet_model_name = NULL,
         .wakenet_model_name_2 = NULL,
-        .wakenet_mode = DET_MODE_90,
+        .wakenet_mode = DET_MODE_95,
         .afe_mode = SR_MODE_LOW_COST,
         .afe_perferred_core = 1,
         .afe_perferred_priority = 5,
         .afe_ringbuf_size = 50,
         .memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM,
-        .afe_linear_gain = 1.0,
+        .afe_linear_gain = 8.0,
         .agc_mode = AFE_MN_PEAK_AGC_MODE_2,
         .pcm_config = {
             .total_ch_num = 3,
@@ -753,8 +788,8 @@ void MIC_Speech_init()
     };
     afe_config.aec_init = false;
     afe_config.se_init = false;
-    afe_config.vad_init = false;
-    afe_config.afe_ringbuf_size = 10;
+    afe_config.vad_init = true;
+    afe_config.afe_ringbuf_size = 100;
     afe_config.pcm_config.total_ch_num = 1;
     afe_config.pcm_config.mic_num = 1;
     afe_config.pcm_config.ref_num = 0;
@@ -765,7 +800,9 @@ void MIC_Speech_init()
     afe_config.wakenet_model_name = NULL;
     ESP_LOGI(TAG, "Continuous MultiNet Wake Word Spotter enabled (WakeNet bypassed)");
 #else
+    afe_config.wakenet_init = true;
     afe_config.wakenet_model_name = esp_srmodel_filter(MIC_Speech.models, ESP_WN_PREFIX, NULL);
+    ESP_LOGI(TAG, "WakeNet enabled with model: %s", afe_config.wakenet_model_name ? afe_config.wakenet_model_name : "NULL");
 #endif
     MIC_Speech.afe_data = MIC_Speech.afe_handle->create_from_config(&afe_config);
     xTaskCreatePinnedToCore((TaskFunction_t)feed_handler, "App/SR/Feed", 4 * 1024, &MIC_Speech, 5, NULL, 1);
