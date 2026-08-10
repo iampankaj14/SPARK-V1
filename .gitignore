@@ -17,3 +17,7 @@ venv/
 
 # MacOS
 .DS_Store
+.cache/
+firmware/.cache/
+firmware/components_backup/
+firmware/xiaozhi-src/

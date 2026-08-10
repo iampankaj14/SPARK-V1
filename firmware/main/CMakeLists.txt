@@ -1,9 +1,8 @@
 idf_component_register(
                          SRCS 
-                              "./main.c" 
+                              "./main.cc" 
                               "./EXIO/TCA9554PWR.c"
                               "./Audio_Driver/PCM5101.c" 
-                              "./MIC_Driver/MIC_Speech.c" 
                               "./LCD_Driver/esp_lcd_spd2010/esp_lcd_spd2010.c" 
                               "./LCD_Driver/Display_SPD2010.c"     
                               "./Touch_Driver/Touch_SPD2010.c"  
@@ -15,24 +14,45 @@ idf_component_register(
                               "./QMI8658/QMI8658.c"
                               "./BAT_Driver/BAT_Driver.c"
                               "./PWR_Key/PWR_Key.c"
-                              "./Wireless/Wireless.c"
-                              "./Provisioning/Provisioning.c"
-                              "./Provisioning/dns_server.c"
-                              "./Cloud/Cloud.c"
-                              "./Cloud/Cloud_Upload.c"
-                              "./SparkCore/spark_state.c"
                               "./SparkCore/spark_hardware.c"
                               "./SparkCore/spark_face.c"
                               "./SparkCore/spark_animation.c"
                               "./SparkCore/spark_emotion.c"
-                              "./SparkCore/spark_intent.c"
                               "./SparkCore/spark_solar_system.c"
                               "./SparkCore/spark_portal_travel.c"
                               "./assets/portal_frames.c"
 
+                              "./SparkBoard/spark_board.cc"
+                              "./SparkBoard/spark_display.cc"
+                              "./SparkBoard/spark_audio_codec.cc"
+
+                              "./xiaozhi/application.cc"
+                              "./xiaozhi/device_state_machine.cc"
+                              "./xiaozhi/settings.cc"
+                              "./xiaozhi/system_info.cc"
+                              "./xiaozhi/assets.cc"
+                              "./xiaozhi/mcp_server.cc"
+                              "./xiaozhi/ota.cc"
+                              "./xiaozhi/audio/audio_service.cc"
+                              "./xiaozhi/audio/audio_codec.cc"
+                              "./xiaozhi/audio/audio_debugger.cc"
+                              "./xiaozhi/audio/demuxer/ogg_demuxer.cc"
+                              "./xiaozhi/audio/wake_words/wake_word_audio_cache.cc"
+                              "./xiaozhi/audio/wake_words/esp_wake_word.cc"
+                              "./xiaozhi/audio/wake_words/custom_wake_word.cc"
+                              "./xiaozhi/audio/engines/afe_audio_engine.cc"
+                              "./xiaozhi/display/display.cc"
+                              "./xiaozhi/display/text_glyph.cc"
+                              "./xiaozhi/protocols/protocol.cc"
+                              "./xiaozhi/protocols/websocket_protocol.cc"
+                              "./xiaozhi/protocols/mqtt_protocol.cc"
+                              "./xiaozhi/protocols/text_glyph_payload.cc"
+                              "./xiaozhi/boards/common/wifi_board.cc"
+                              "./xiaozhi/boards/common/board.cc"
+                              "./xiaozhi/boards/common/backlight.cc"
+
                          INCLUDE_DIRS 
                               "./Audio_Driver" 
-                              "./MIC_Driver" 
                               "./LCD_Driver/esp_lcd_spd2010" 
                               "./LCD_Driver"    
                               "./Touch_Driver"
@@ -47,11 +67,43 @@ idf_component_register(
                               "./PWR_Key"
                               "./Wireless"
                               "./Provisioning"
-                              "./Cloud"
                               "./SparkCore"
                               "."
+
+                              "./SparkBoard"
+                              "./xiaozhi"
+                              "./xiaozhi/audio"
+                              "./xiaozhi/audio/wake_words"
+                              "./xiaozhi/audio/engines"
+                              "./xiaozhi/audio/demuxer"
+                              "./xiaozhi/display"
+                              "./xiaozhi/protocols"
+                              "./xiaozhi/boards/common"
+                              "./xiaozhi/assets"
+
                          EMBED_FILES
-                              "./Provisioning/portal.html"
+                              "./xiaozhi/assets/locales/en-US/0.ogg"
+                              "./xiaozhi/assets/locales/en-US/1.ogg"
+                              "./xiaozhi/assets/locales/en-US/2.ogg"
+                              "./xiaozhi/assets/locales/en-US/3.ogg"
+                              "./xiaozhi/assets/locales/en-US/4.ogg"
+                              "./xiaozhi/assets/locales/en-US/5.ogg"
+                              "./xiaozhi/assets/locales/en-US/6.ogg"
+                              "./xiaozhi/assets/locales/en-US/7.ogg"
+                              "./xiaozhi/assets/locales/en-US/8.ogg"
+                              "./xiaozhi/assets/locales/en-US/9.ogg"
+                              "./xiaozhi/assets/locales/en-US/activation.ogg"
+                              "./xiaozhi/assets/locales/en-US/err_pin.ogg"
+                              "./xiaozhi/assets/locales/en-US/err_reg.ogg"
+                              "./xiaozhi/assets/locales/en-US/upgrade.ogg"
+                              "./xiaozhi/assets/locales/en-US/welcome.ogg"
+                              "./xiaozhi/assets/locales/en-US/wificonfig.ogg"
+                              "./xiaozhi/assets/common/exclamation.ogg"
+                              "./xiaozhi/assets/common/low_battery.ogg"
+                              "./xiaozhi/assets/common/popup.ogg"
+                              "./xiaozhi/assets/common/success.ogg"
+                              "./xiaozhi/assets/common/vibration.ogg"
+
                          PRIV_REQUIRES
                               esp_websocket_client
                               esp_http_client
@@ -61,7 +113,6 @@ idf_component_register(
                               esp_lcd
                               driver
                               lvgl__lvgl
-                              chmorgan__esp-audio-player
                               espressif__esp-sr
                               espressif__esp-dsp
                               fatfs
@@ -69,4 +120,18 @@ idf_component_register(
                               bt
                               esp_adc
                               esp_http_server
+                              espressif__esp_audio_codec
+                              78__esp-wifi-connect
+                              esp_app_format
+                              espressif__esp_audio_effects
+                              78__esp-ml307
+                              app_update
+                              efuse
                        )
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE 
+    HAVE_LVGL=0
+    BOARD_NAME=\"spark-v1\"
+    BOARD_TYPE=\"spark-v1\"
+    BOARD_MANUFACTURER=\"spark\"
+)

@@ -1,16 +1,17 @@
 #include "deskimon.h"
-
-// Hardware validation test mode:
-// 1: Pure solid RED (#FF0000)
-// 2: Pure solid GREEN (#00FF00)
-// 3: Pure solid BLUE (#0000FF)
-// 0: Disabled (normal operation)
-#define HARDWARE_VALIDATION_TEST 0
-
+#include "lvgl.h"
+#include "LVGL_Driver.h"
+#include "PCF85063.h"
+#include "SD_MMC.h"
+#include "BAT_Driver.h"
 #include "../QMI8658/QMI8658.h"
+
 #include <stdlib.h>
+#include <string.h>
 #include "esp_timer.h"
-#include "../MIC_Driver/MIC_Speech.h"
+#include "esp_log.h"
+
+extern void Spark_StartListening(void);
 #include "spark_face.h"
 #include "spark_animation.h"
 #include "spark_ui_objects.h"
@@ -51,6 +52,15 @@ static volatile bool s_eye_state_pending = false;
 
 static uint32_t press_start_time = 0;
 static bool is_screen_pressed = false;
+
+// Status Button & Chat Subtitle UI Objects
+static lv_obj_t * s_status_btn = NULL;
+static lv_obj_t * s_status_label = NULL;
+static lv_obj_t * s_chat_label = NULL;
+static char s_status_text[64] = "TAP TO TALK";
+static char s_chat_text[256] = "";
+static volatile bool s_status_pending = false;
+static volatile bool s_chat_pending = false;
 
 // UI Objects
 static lv_obj_t * eye_l;
@@ -252,6 +262,31 @@ static void logic_timer_cb(lv_timer_t * t)
     if (s_eye_state_pending) {
         s_eye_state_pending = false;
         set_eyes_state(s_pending_eye_state);
+    }
+
+    if (s_status_pending && s_status_label && s_status_btn) {
+        lv_label_set_text(s_status_label, s_status_text);
+        if (strstr(s_status_text, "LISTENING") || strstr(s_status_text, "Listening")) {
+            lv_obj_set_style_border_color(s_status_btn, lv_color_hex(0x00E676), 0);
+            lv_obj_set_style_text_color(s_status_label, lv_color_hex(0x00E676), 0);
+        } else if (strstr(s_status_text, "SPEAKING") || strstr(s_status_text, "Speaking")) {
+            lv_obj_set_style_border_color(s_status_btn, lv_color_hex(0x1AC8DB), 0);
+            lv_obj_set_style_text_color(s_status_label, lv_color_hex(0x1AC8DB), 0);
+        } else if (strstr(s_status_text, "THINKING") || strstr(s_status_text, "Thinking")) {
+            lv_obj_set_style_border_color(s_status_btn, lv_color_hex(0xAB47BC), 0);
+            lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xAB47BC), 0);
+        } else if (strstr(s_status_text, "Error") || strstr(s_status_text, "ERROR")) {
+            lv_obj_set_style_border_color(s_status_btn, lv_color_hex(0xFF5252), 0);
+            lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xFF5252), 0);
+        } else {
+            lv_obj_set_style_border_color(s_status_btn, lv_color_hex(s_eye_color_hex), 0);
+            lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xFFFFFF), 0);
+        }
+        s_status_pending = false;
+    }
+    if (s_chat_pending && s_chat_label) {
+        lv_label_set_text(s_chat_label, s_chat_text);
+        s_chat_pending = false;
     }
 
     if (s_eye_color_pending) {
@@ -671,11 +706,16 @@ static void screen_event_cb(lv_event_t * e) {
     }
     else if (code == LV_EVENT_LONG_PRESSED) {
         ESP_LOGI("LATENCY_AUDIT", "[LATENCY] Long Press: %lld ms", esp_timer_get_time() / 1000);
-        MIC_StartRecordingManual();
+        Spark_StartListening();
     }
     else if (code == LV_EVENT_RELEASED) {
         is_screen_pressed = false;
     }
+}
+
+static void status_btn_click_cb(lv_event_t * e) {
+    ESP_LOGI("DESKIMON_UI", "On-screen Tap-to-Talk button clicked!");
+    Spark_StartListening();
 }
 
 static void create_eye_masks(lv_obj_t * eye, lv_obj_t ** top_mask, lv_obj_t ** moon_mask) {
@@ -702,12 +742,7 @@ static void create_eye_masks(lv_obj_t * eye, lv_obj_t ** top_mask, lv_obj_t ** m
 
 void Deskimon_Start(void)
 {
-    #include "../Provisioning/Provisioning.h"
-    const device_config_t *cfg = Provisioning_GetConfig();
-    if (cfg && cfg->eye_color != 0) {
-        s_eye_color_hex = cfg->eye_color;
-        s_default_eye_color = cfg->eye_color;
-    }
+    // Provisioning config bypassed for initial migration
     s_eye_color_pending = true;
 
 
@@ -1231,6 +1266,35 @@ void Deskimon_Start(void)
 
     // BLACK HOLE ANIMATION
 
+    // STATUS / TAP-TO-TALK BUTTON (Bottom Pill)
+    s_status_btn = lv_btn_create(scr);
+    lv_obj_remove_style_all(s_status_btn);
+    lv_obj_set_size(s_status_btn, 190, 36);
+    lv_obj_set_style_radius(s_status_btn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(s_status_btn, lv_color_hex(0x101320), 0);
+    lv_obj_set_style_bg_opa(s_status_btn, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(s_status_btn, 2, 0);
+    lv_obj_set_style_border_color(s_status_btn, lv_color_hex(s_eye_color_hex), 0);
+    lv_obj_set_style_border_opa(s_status_btn, LV_OPA_80, 0);
+    lv_obj_align(s_status_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_add_event_cb(s_status_btn, status_btn_click_cb, LV_EVENT_CLICKED, NULL);
+
+    s_status_label = lv_label_create(s_status_btn);
+    lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(s_status_label, "TAP TO TALK");
+    lv_obj_align(s_status_label, LV_ALIGN_CENTER, 0, 0);
+
+    // CHAT / TRANSCRIPT SUBTITLE LABEL (Top / Subtitle)
+    s_chat_label = lv_label_create(scr);
+    lv_obj_set_style_text_color(s_chat_label, lv_color_hex(0xE0F7FA), 0);
+    lv_obj_set_style_text_font(s_chat_label, &lv_font_montserrat_14, 0);
+    lv_label_set_long_mode(s_chat_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_chat_label, 340);
+    lv_obj_set_style_text_align(s_chat_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(s_chat_label, "");
+    lv_obj_align(s_chat_label, LV_ALIGN_TOP_MID, 0, 24);
+
     logic_timer = lv_timer_create(logic_timer_cb, 100, NULL);
 }
 
@@ -1268,6 +1332,47 @@ void Deskimon_SetEmotion(const char* emotion)
     }
     s_pending_eye_state = state;
     s_eye_state_pending = true;
+}
+
+void Deskimon_SetStatus(const char* status)
+{
+    if (!status) return;
+
+    if (strstr(status, "Standby") || strstr(status, "STANDBY") || strstr(status, "Idle") || strstr(status, "idle")) {
+        strncpy(s_status_text, "TAP TO TALK", sizeof(s_status_text) - 1);
+        Deskimon_SetEmotion("normal");
+    } else {
+        strncpy(s_status_text, status, sizeof(s_status_text) - 1);
+        if (strstr(status, "Listening") || strstr(status, "LISTENING")) {
+            Deskimon_SetEmotion("interest");
+        } else if (strstr(status, "Thinking") || strstr(status, "THINKING")) {
+            Deskimon_SetEmotion("ooh");
+        } else if (strstr(status, "Speaking") || strstr(status, "SPEAKING")) {
+            Deskimon_SetEmotion("happy");
+        }
+    }
+    s_status_text[sizeof(s_status_text) - 1] = '\0';
+    s_status_pending = true;
+}
+
+void Deskimon_SetChatMessage(const char* role, const char* content)
+{
+    if (!content || strlen(content) == 0) {
+        s_chat_text[0] = '\0';
+    } else {
+        snprintf(s_chat_text, sizeof(s_chat_text), "%s%s", 
+                 (role && strcmp(role, "assistant") != 0 && strcmp(role, "system") != 0) ? "[You]: " : "", 
+                 content);
+    }
+    s_chat_pending = true;
+}
+
+void Deskimon_ShowNotification(const char* notification, int duration_ms)
+{
+    if (!notification) return;
+    strncpy(s_chat_text, notification, sizeof(s_chat_text) - 1);
+    s_chat_text[sizeof(s_chat_text) - 1] = '\0';
+    s_chat_pending = true;
 }
 
 lv_obj_t* Spark_UI_GetObj(spark_ui_obj_id_t id) {

@@ -1,63 +1,46 @@
-menu "Example Configuration"
-    config LV_MEM_SIZE_KILOBYTES
-        int "Size of the memory used by `lv_mem_alloc` in kilobytes (>= 2kB)"
-        default 48
-    config BT_ENABLED
-        bool "Select this option to enable Bluetooth"
-        default y 
+menu "Xiaozhi Configuration"
 
-    config BT_BLE_50_FEATURES_SUPPORTED
-        bool "Enabling this option activates BLE 5.0 features"
-        default y 
-        
-    config BT_BLE_42_FEATURES_SUPPORTED
-        bool "This enables BLE 4.2 features."
-        default y 
-    
-    config DESKIMON_VOICE_API_URL
-        string "Direct Voice API server URL (e.g. http://192.168.1.100:3001)"
-        default ""
+    choice WIFI_PROVISIONING_MODE
+        prompt "WiFi Provisioning Mode"
+        default USE_HOTSPOT_WIFI_PROVISIONING
         help
-            URL of the server running server_daemon.js. If empty, the
-            ESP32 will use direct cloud APIs or the legacy Supabase storage path.
+            Select the WiFi provisioning mechanism.
 
-    config DESKIMON_DIRECT_APIS
-        bool "Enable Direct ESP32-to-API Cloud Processing (Bypass Server/AWS)"
-        default y
-        help
-            Enables direct calls from ESP32 to Google Gemini API (audio STT + LLM)
-            and TTS API (ElevenLabs / VoiceRSS) without needing a backend server.
-
-    config DESKIMON_GEMINI_API_KEY
-        string "Google Gemini API Key"
-        default ""
-        help
-            API key from Google AI Studio (generativelanguage.googleapis.com).
-
-    choice DESKIMON_TTS_PROVIDER
-        prompt "TTS Provider for Direct Mode"
-        default DESKIMON_TTS_ELEVENLABS
-        help
-            Select the Text-to-Speech service to use when running in Direct API mode.
-
-        config DESKIMON_TTS_ELEVENLABS
-            bool "ElevenLabs (High quality)"
-        config DESKIMON_TTS_VOICERSS
-            bool "VoiceRSS (Free 350 req/day)"
+        config USE_HOTSPOT_WIFI_PROVISIONING
+            bool "SoftAP Hotspot Portal Mode"
+        config USE_ESP_BLUFI_WIFI_PROVISIONING
+            bool "BLE BluFi Mode"
     endchoice
 
-    config DESKIMON_ELEVENLABS_API_KEY
-        string "ElevenLabs API Key"
-        default ""
-
-    config DESKIMON_ELEVENLABS_VOICE_ID
-        string "ElevenLabs Voice ID"
-        default "21m00Tcm4TlvDq8ikWAM"
+    config USE_DEVICE_AEC
+        bool "Enable Device-Side Echo Cancellation (AEC)"
+        default n
         help
-            Voice ID string from ElevenLabs (e.g. 21m00Tcm4TlvDq8ikWAM for Rachel).
+            Enable AEC on the ESP32 hardware/software before sending audio.
 
-    config DESKIMON_VOICERSS_API_KEY
-        string "VoiceRSS API Key"
-        default ""
+    config USE_SERVER_AEC
+        bool "Enable Server-Side Echo Cancellation (AEC)"
+        default n
+        help
+            Instruct the server to perform echo cancellation.
+
+    config CUSTOM_WAKE_WORD
+        bool "Enable Custom Wake Word"
+        default n
+        help
+            Use a custom offline model or logic for wake word detection.
+
+    config USE_AUDIO_DEBUGGER
+        bool "Enable Audio Debugging"
+        default n
+
+    config AUDIO_DEBUG_UDP_SERVER
+        string "UDP Server for Audio Debugging"
+        default "192.168.1.100"
+        depends on USE_AUDIO_DEBUGGER
+
+    config OTA_URL
+        string "OTA Server URL"
+        default "http://localhost/ota"
 
 endmenu

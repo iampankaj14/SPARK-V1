@@ -60,9 +60,17 @@ typedef struct {
     uint32_t default_transition_ms;
 } spark_face_config_t;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void Spark_Face_Init(void);
 void Spark_Face_Set(spark_face_t face);
 spark_face_t Spark_Face_Get(void);
 void Spark_Face_SetColor(uint32_t color_hex);
 const char* Spark_Face_GetName(spark_face_t face);
 const spark_face_config_t* Spark_Face_GetConfig(spark_face_t face);
+
+#ifdef __cplusplus
+}
+#endif

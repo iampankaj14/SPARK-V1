@@ -58,6 +58,10 @@
 #define LEDC_MAX_Duty          ((1 << LEDC_ResolutionRatio) - 1)
 #define Backlight_MAX   100      
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern esp_lcd_panel_handle_t panel_handle;
 extern uint8_t LCD_Backlight;
 
@@ -68,3 +72,7 @@ void LCD_addWindow(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yen
 
 void Backlight_Init(void);                             // Initialize the LCD backlight, which has been called in the LCD_Init function, ignore it                                                         
 void Set_Backlight(uint8_t Light);                   // Call this function to adjust the brightness of the backlight. The value of the parameter Light ranges from 0 to 100
+
+#ifdef __cplusplus
+}
+#endif

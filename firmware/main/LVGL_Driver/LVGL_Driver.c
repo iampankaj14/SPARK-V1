@@ -1,8 +1,21 @@
 #include "LVGL_Driver.h"
+#include "freertos/semphr.h"
 
 static const char *TAG_LVGL = "LVGL";
 
-     
+static SemaphoreHandle_t lvgl_mutex = NULL;
+
+bool lvgl_port_lock(uint32_t timeout_ms) {
+    if (lvgl_mutex == NULL) return true;
+    const TickType_t timeout_ticks = (timeout_ms == 0) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
+    return xSemaphoreTakeRecursive(lvgl_mutex, timeout_ticks) == pdTRUE;
+}
+
+void lvgl_port_unlock(void) {
+    if (lvgl_mutex != NULL) {
+        xSemaphoreGiveRecursive(lvgl_mutex);
+    }
+}
 
 lv_disp_draw_buf_t disp_buf;                                                 // contains internal graphic buffer(s) called draw buffer(s)
 lv_disp_drv_t disp_drv;                                                      // contains callback functions
@@ -92,6 +105,9 @@ lv_disp_t *disp;
 void LVGL_Init(void)
 {
     ESP_LOGI(TAG_LVGL, "Initialize LVGL library");
+    if (lvgl_mutex == NULL) {
+        lvgl_mutex = xSemaphoreCreateRecursiveMutex();
+    }
     lv_init();
     
     lv_color_t *buf1 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
