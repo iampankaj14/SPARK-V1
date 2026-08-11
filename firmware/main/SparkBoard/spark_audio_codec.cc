@@ -162,16 +162,14 @@ int SparkAudioCodec::Read(int16_t* dest, int samples) {
         return samples;
     }
 
-    // Allocate temporary RX buffer for stereo 32-bit I2S samples
-    int stereo_samples = samples * 2;
-    if (rx_temp_buf_samples_ < stereo_samples) {
+    if (rx_temp_buf_samples_ < samples) {
         if (rx_temp_buf_) free(rx_temp_buf_);
-        rx_temp_buf_ = (int32_t*)malloc(stereo_samples * sizeof(int32_t));
-        rx_temp_buf_samples_ = stereo_samples;
+        rx_temp_buf_ = (int32_t*)malloc(samples * sizeof(int32_t));
+        rx_temp_buf_samples_ = samples;
     }
 
     size_t bytes_read = 0;
-    esp_err_t err = i2s_channel_read(rx_handle_, rx_temp_buf_, stereo_samples * sizeof(int32_t), &bytes_read, portMAX_DELAY);
+    esp_err_t err = i2s_channel_read(rx_handle_, rx_temp_buf_, samples * sizeof(int32_t), &bytes_read, portMAX_DELAY);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2S read error: %s", esp_err_to_name(err));
         std::memset(dest, 0, samples * sizeof(int16_t));
@@ -179,50 +177,14 @@ int SparkAudioCodec::Read(int16_t* dest, int samples) {
     }
 
     int read_samples = bytes_read / sizeof(int32_t);
-    int read_frames = read_samples / 2;
 
-    // Shift >> 16 to convert 32-bit I2S MEMS samples to 16-bit PCM (standard range)
-    // Apply DC offset removal (high-pass filter) to the microphone channel.
-    // We compute RMS for Left and Right channels to check which one is active.
-    float sum_sq_left = 0.0f;
-    float sum_sq_right = 0.0f;
-    int count_left = 0;
-    int count_right = 0;
-
-    for (int i = 0; i < read_frames; ++i) {
-        // Left Channel (Even index)
-        int32_t raw_l = rx_temp_buf_[2 * i] >> 16;
-        if (raw_l > 32767) raw_l = 32767;
-        else if (raw_l < -32768) raw_l = -32768;
-        sum_sq_left += (float)raw_l * raw_l;
-        count_left++;
-
-        // Right Channel (Odd index) - shift >> 13 to provide optimal 8x gain for 24-bit MEMS microphone
-        int32_t raw_r = rx_temp_buf_[2 * i + 1] >> 13;
-        if (raw_r > 32767) raw_r = 32767;
-        else if (raw_r < -32768) raw_r = -32768;
-        sum_sq_right += (float)raw_r * raw_r;
-        count_right++;
-
-        // Extract Right channel to dest with high-pass DC offset filter
-        dc_offset_ = 0.98f * dc_offset_ + 0.02f * (float)raw_r;
-        int32_t val = raw_r - (int32_t)dc_offset_;
-        if (val > 32767) val = 32767;
-        else if (val < -32768) val = -32768;
-        dest[i] = (int16_t)val;
+    for (int i = 0; i < read_samples; ++i) {
+        // Convert 32-bit I2S MEMS sample (24-bit MSB-aligned) to 16-bit signed PCM
+        // Shift >> 14 gives ideal 16-bit range matching hardware sensitivity
+        dest[i] = (int16_t)(rx_temp_buf_[i] >> 14);
     }
 
-    // Diagnostic logging once per second (approx 31 calls per sec at 16kHz/512 samples)
-    static int log_counter = 0;
-    log_counter++;
-    if (log_counter >= 31) {
-        log_counter = 0;
-        float rms_l = sqrtf(sum_sq_left / (count_left > 0 ? count_left : 1));
-        float rms_r = sqrtf(sum_sq_right / (count_right > 0 ? count_right : 1));
-        ESP_LOGI("AUDIO_DIAG", "Stereo Channels - Left (Even) RMS: %.1f, Right (Odd) RMS: %.1f", rms_l, rms_r);
-    }
-
-    return read_frames;
+    return read_samples;
 }
 
 int SparkAudioCodec::Write(const int16_t* data, int samples) {
