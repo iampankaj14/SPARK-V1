@@ -400,6 +400,50 @@ static esp_err_t http_get_root_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+extern void InjectVirtualMicAudioFromC(const int16_t* data, int samples);
+
+// Serve the Invisible Voice Portal HTML page for phone mic sync
+static esp_err_t http_get_voice_portal_handler(httpd_req_t *req)
+{
+    extern const uint8_t voice_portal_html_start[] asm("_binary_voice_portal_html_start");
+    extern const uint8_t voice_portal_html_end[]   asm("_binary_voice_portal_html_end");
+    size_t len = voice_portal_html_end - voice_portal_html_start;
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_send(req, (const char*)voice_portal_html_start, len);
+    return ESP_OK;
+}
+
+// WebSocket handler for continuous phone mic stream
+static esp_err_t ws_voice_handler(httpd_req_t *req)
+{
+    if (req->method == HTTP_GET) {
+        ESP_LOGI(TAG, "WebSocket Voice Session Handshake Established!");
+        return ESP_OK;
+    }
+
+    httpd_ws_frame_t ws_pkt;
+    memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
+
+    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
+    if (ret != ESP_OK) return ret;
+
+    if (ws_pkt.len > 0) {
+        uint8_t *buf = (uint8_t*)malloc(ws_pkt.len);
+        if (buf) {
+            ws_pkt.payload = buf;
+            ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+            if (ret == ESP_OK && ws_pkt.type == HTTPD_WS_TYPE_BINARY) {
+                // Inject incoming audio chunk directly into Virtual Mic pipeline!
+                InjectVirtualMicAudioFromC((const int16_t*)buf, ws_pkt.len / sizeof(int16_t));
+            }
+            free(buf);
+        }
+    }
+    return ESP_OK;
+}
+
 // API: Scan for Wi-Fi networks
 static esp_err_t http_get_scan_handler(httpd_req_t *req)
 {
@@ -607,6 +651,11 @@ static esp_err_t http_redirect_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+esp_err_t StartVoicePortalHttpServer(void)
+{
+    return start_http_server();
+}
+
 static esp_err_t start_http_server(void)
 {
     if (s_httpd != NULL) {
@@ -637,11 +686,20 @@ static esp_err_t start_http_server(void)
     const httpd_uri_t restart = {
         .uri = "/api/restart", .method = HTTP_POST, .handler = http_post_restart_handler
     };
+    const httpd_uri_t voice_portal = {
+        .uri = "/voice", .method = HTTP_GET, .handler = http_get_voice_portal_handler
+    };
+    const httpd_uri_t ws_voice = {
+        .uri = "/ws/voice", .method = HTTP_GET, .handler = ws_voice_handler,
+        .user_ctx = NULL, .is_websocket = true
+    };
     const httpd_uri_t redirect = {
         .uri = "/*", .method = HTTP_GET, .handler = http_redirect_handler
     };
 
     httpd_register_uri_handler(s_httpd, &root);
+    httpd_register_uri_handler(s_httpd, &voice_portal);
+    httpd_register_uri_handler(s_httpd, &ws_voice);
     httpd_register_uri_handler(s_httpd, &scan);
     httpd_register_uri_handler(s_httpd, &connect_wifi);
     httpd_register_uri_handler(s_httpd, &device_info);

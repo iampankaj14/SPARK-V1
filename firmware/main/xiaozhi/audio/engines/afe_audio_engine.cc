@@ -18,7 +18,13 @@
 #if CONFIG_USE_AUDIO_PROCESSOR
 static constexpr bool kUseAfeForVoiceProcessing = true;
 #else
-static constexpr bool kUseAfeForVoiceProcessing = false;
+// Force voice processing through AFE even without CONFIG_USE_AUDIO_PROCESSOR.
+// On the SPARK-V1 board, the MSM261 MEMS mic has a high noise floor (~250 RMS
+// after >>14 conversion). Without AFE processing, raw noisy audio is sent
+// directly to the server via OutputRawAudio(), causing the server to
+// transcribe noise as "Yeah." The AFE's WebRTC NS cleans the audio before
+// it reaches the server.
+static constexpr bool kUseAfeForVoiceProcessing = true;
 #endif
 
 AfeAudioEngine::AfeAudioEngine() {
@@ -136,28 +142,23 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
         ? nullptr
         : esp_srmodel_filter(models_, ESP_VADN_PREFIX, nullptr);
     afe_config_t* afe_config = afe_config_init(
-        input_format.c_str(), models_, AFE_TYPE_VC, AFE_MODE_HIGH_PERF);
+        input_format.c_str(), models_, AFE_TYPE_SR, AFE_MODE_LOW_COST);
     if (afe_config == nullptr) {
         ESP_LOGE(TAG, "Failed to create AFE configuration");
         return false;
     }
-
-    afe_config->aec_init = codec_->input_reference();
-    afe_config->aec_mode = AEC_MODE_VOIP_HIGH_PERF;
-    afe_config->aec_nlp_level = AEC_NLP_LEVEL_VERYAGGR;
-    afe_config->ns_init = false;
-    afe_config->vad_init = kUseAfeForVoiceProcessing;
-    afe_config->vad_mode = VAD_MODE_0;
-    afe_config->vad_min_noise_ms = 100;
-    if (vad_model_name != nullptr) {
-        afe_config->vad_model_name = vad_model_name;
-    }
+    afe_config->afe_mode = AFE_MODE_LOW_COST;
+    afe_config->aec_init = false;
+    afe_config->se_init = true;   // Speech Enhancement (WebRTC NS) — removes mic noise floor + DC offset
+    afe_config->vad_init = false;  // Disabled in working commit 8f4559c to prevent VAD false triggers
     afe_config->wakenet_init = wake_detector_ == WakeDetector::kWakeNet;
     afe_config->wakenet_model_name = wake_detector_ == WakeDetector::kWakeNet
         ? wakenet_model_name
         : nullptr;
-    afe_config->agc_init = false;
+    afe_config->wakenet_mode = DET_MODE_90;
+    afe_config->afe_ringbuf_size = 10;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
+    afe_config->afe_linear_gain = 4.0f;  // MSM261 mic output is quiet; boost to usable level
 
     afe_iface_ = esp_afe_handle_from_config(afe_config);
     if (afe_iface_ != nullptr) {
@@ -173,7 +174,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
     }
 
     if (wake_detector_ == WakeDetector::kWakeNet) {
-        afe_iface_->disable_wakenet(afe_data_);
+        afe_iface_->enable_wakenet(afe_data_);
     }
     if (codec_->input_reference()) {
         afe_iface_->disable_aec(afe_data_);
@@ -195,7 +196,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
             auto* engine = static_cast<AfeAudioEngine*>(arg);
             engine->ProcessingTask();
             vTaskDelete(nullptr);
-        }, "audio_afe", 3072, this, 3, &processing_task_);
+        }, "audio_afe", 8192, this, 3, &processing_task_);
     }
     if (task_created != pdPASS) {
         ESP_LOGE(TAG, "Failed to create AFE processing task");
@@ -208,7 +209,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
     const char* detector = wake_detector_ == WakeDetector::kWakeNet
         ? "WakeNet"
         : (wake_detector_ == WakeDetector::kMultiNet ? "MultiNet" : "none");
-    ESP_LOGI(TAG, "Initialized FD AFE, detector: %s, NS: off, feed: %d, fetch: %d",
+    ESP_LOGI(TAG, "Initialized FD AFE, detector: %s, NS: on, feed: %d, fetch: %d",
         detector, afe_iface_->get_feed_chunksize(afe_data_), afe_iface_->get_fetch_chunksize(afe_data_));
     return true;
 }

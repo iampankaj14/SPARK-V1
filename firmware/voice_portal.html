@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deskimon Voice Companion</title>
+    <style>
+        :root {
+            --bg-color: #0d0f17;
+            --card-bg: rgba(22, 27, 44, 0.85);
+            --accent-green: #00ffaa;
+            --accent-blue: #00bfff;
+            --accent-orange: #ff9900;
+            --accent-red: #ff4757;
+            --text-color: #e2e8f0;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .container {
+            width: 88%;
+            max-width: 380px;
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 28px;
+            padding: 32px 24px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+            text-align: center;
+            position: relative;
+        }
+
+        .avatar-ring {
+            width: 140px;
+            height: 140px;
+            margin: 0 auto 24px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,255,170,0.1) 0%, rgba(0,0,0,0) 70%);
+            border: 2px solid var(--accent-green);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 30px rgba(0, 255, 170, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .avatar-ring.active {
+            box-shadow: 0 0 50px rgba(0, 191, 255, 0.8);
+            border-color: var(--accent-blue);
+            transform: scale(1.05);
+        }
+
+        .avatar-ring.warning {
+            box-shadow: 0 0 30px rgba(255, 71, 87, 0.6);
+            border-color: var(--accent-red);
+        }
+
+        .pet-face {
+            font-size: 56px;
+        }
+
+        h1 {
+            font-size: 22px;
+            margin: 0 0 6px;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-bottom: 24px;
+        }
+
+        .start-btn {
+            background: linear-gradient(135deg, #00ffaa, #00bfff);
+            color: #040914;
+            font-size: 15px;
+            font-weight: 700;
+            padding: 14px 28px;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            box-shadow: 0 8px 25px rgba(0, 255, 170, 0.4);
+            transition: all 0.2s ease;
+            width: 100%;
+            margin-bottom: 16px;
+        }
+
+        .start-btn:active {
+            transform: scale(0.97);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            background: rgba(0, 255, 170, 0.1);
+            color: var(--accent-green);
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.8); }
+        }
+
+        .waveform {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            height: 30px;
+            margin-top: 12px;
+        }
+
+        .bar {
+            width: 4px;
+            height: 6px;
+            background: #334155;
+            border-radius: 2px;
+            transition: height 0.05s ease;
+        }
+
+        .log-box {
+            margin-top: 12px;
+            font-size: 11px;
+            font-family: monospace;
+            color: #38bdf8;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 8px;
+            border-radius: 8px;
+            max-height: 60px;
+            overflow-y: auto;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="avatar-ring" id="avatarRing">
+            <div class="pet-face" id="petFace">⚡</div>
+        </div>
+
+        <h1>Deskimon Voice Sync</h1>
+        <div class="subtitle">Invisible Hands-Free Mode</div>
+
+        <button class="start-btn" id="startBtn" onclick="activateVoiceMode()">
+            🎙️ TAP TO ACTIVATE MIC
+        </button>
+
+        <div class="status-badge" id="statusBadge">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Tap button to allow mic</span>
+        </div>
+
+        <div class="waveform" id="waveform">
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+        </div>
+
+        <div class="log-box" id="logBox">Status: Ready to connect...</div>
+    </div>
+
+    <script>
+        const avatarRing = document.getElementById('avatarRing');
+        const petFace = document.getElementById('petFace');
+        const statusText = document.getElementById('statusText');
+        const startBtn = document.getElementById('startBtn');
+        const logBox = document.getElementById('logBox');
+        const bars = document.querySelectorAll('.bar');
+
+        let ws = null;
+        let audioCtx = null;
+        let micStream = null;
+        let isSpeaking = false;
+        let silenceTimer = null;
+        let micActive = false;
+        let packetCount = 0;
+
+        function log(msg) {
+            console.log(msg);
+            logBox.innerText = msg;
+        }
+
+        function initWebSocket() {
+            let targetHost = window.location.host;
+            if (!targetHost || targetHost.includes('localhost') || targetHost.includes('127.0.0.1')) {
+                targetHost = '192.168.1.180';
+            }
+            const wsUrl = `ws://${targetHost}/ws/voice`;
+            
+            log('Connecting WS to ' + wsUrl);
+            ws = new WebSocket(wsUrl);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                log('WS Connected to Deskimon Watch!');
+                if (micActive) {
+                    statusText.innerText = 'Connected & Streaming...';
+                }
+            };
+
+            ws.onclose = () => {
+                log('WS Disconnected. Retrying in 2s...');
+                statusText.innerText = 'Reconnecting...';
+                setTimeout(initWebSocket, 2000);
+            };
+
+            ws.onerror = (err) => {
+                log('WS Error connecting to watch');
+            };
+        }
+
+        async function activateVoiceMode() {
+            log('Requesting mic permission...');
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                if (audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
+                }
+
+                micStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        channelCount: 1
+                    }
+                });
+
+                log('Mic permission GRANTED! Starting audio pipeline...');
+                micActive = true;
+                startBtn.style.display = 'none';
+                statusText.innerText = 'Connected & Streaming...';
+
+                const source = audioCtx.createMediaStreamSource(micStream);
+                const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+
+                source.connect(processor);
+                processor.connect(audioCtx.destination);
+
+                processor.onaudioprocess = (e) => {
+                    const inputBuffer = e.inputBuffer.getChannelData(0);
+                    
+                    let sum = 0;
+                    for (let i = 0; i < inputBuffer.length; i++) {
+                        sum += inputBuffer[i] * inputBuffer[i];
+                    }
+                    const rms = Math.sqrt(sum / inputBuffer.length);
+
+                    bars.forEach((bar, idx) => {
+                        const h = Math.min(30, Math.max(6, rms * 250 * (1 + (idx % 3) * 0.4)));
+                        bar.style.height = `${h}px`;
+                        bar.style.background = rms > 0.005 ? '#00bfff' : '#334155';
+                    });
+
+                    if (rms > 0.005) {
+                        if (!isSpeaking) {
+                            isSpeaking = true;
+                            avatarRing.classList.add('active');
+                            petFace.innerText = '😮';
+                        }
+                        clearTimeout(silenceTimer);
+                        silenceTimer = setTimeout(() => {
+                            isSpeaking = false;
+                            avatarRing.classList.remove('active');
+                            petFace.innerText = '⚡';
+                        }, 800);
+                    }
+
+                    // Convert Float32 [-1, 1] to Int16 PCM with 2.0x Gain Boost
+                    const pcm16 = new Int16Array(inputBuffer.length);
+                    for (let i = 0; i < inputBuffer.length; i++) {
+                        let sample = inputBuffer[i] * 2.5; // Gain boost for clear voice
+                        sample = Math.max(-1, Math.min(1, sample));
+                        pcm16[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+                    }
+
+                    // ALWAYS stream PCM audio continuously over WebSocket to ESP32-S3!
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(pcm16.buffer);
+                        packetCount++;
+                        if (packetCount % 20 === 0) {
+                            log(`Streaming Voice -> Watch (${packetCount} pkts, RMS: ${rms.toFixed(4)})`);
+                        }
+                    }
+                };
+
+            } catch (err) {
+                log('Mic Error: ' + err.name + ' - ' + err.message);
+                statusText.innerText = 'Mic Access Error!';
+                avatarRing.classList.add('warning');
+                petFace.innerText = '⚠️';
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initWebSocket();
+        });
+    </script>
+</body>
+</html>

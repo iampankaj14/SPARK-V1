@@ -310,17 +310,14 @@ void WifiStation::SetPowerSaveLevel(WifiPowerSaveLevel level) {
     wifi_ps_type_t ps_type;
     switch (level) {
         case WifiPowerSaveLevel::LOW_POWER:
-            ps_type = WIFI_PS_MAX_MODEM;  // Maximum power saving
-            ESP_LOGI(TAG, "Setting WiFi power save level: LOW_POWER (MAX_MODEM)");
+            ps_type = WIFI_PS_MIN_MODEM;  // Minimum power saving
+            ESP_LOGI(TAG, "Setting WiFi power save level: LOW_POWER (MIN_MODEM)");
             break;
         case WifiPowerSaveLevel::BALANCED:
-            ps_type = WIFI_PS_MIN_MODEM;  // Minimum power saving
-            ESP_LOGI(TAG, "Setting WiFi power save level: BALANCED (MIN_MODEM)");
-            break;
         case WifiPowerSaveLevel::PERFORMANCE:
         default:
-            ps_type = WIFI_PS_NONE;       // No power saving
-            ESP_LOGI(TAG, "Setting WiFi power save level: PERFORMANCE (NONE)");
+            ps_type = WIFI_PS_NONE;       // No power saving (keeps APB clock at 240MHz for glitch-free I2S audio)
+            ESP_LOGI(TAG, "Setting WiFi power save level: PERFORMANCE/BALANCED (NONE - locked 240MHz APB clock)");
             break;
     }
     ESP_ERROR_CHECK(esp_wifi_set_ps(ps_type));

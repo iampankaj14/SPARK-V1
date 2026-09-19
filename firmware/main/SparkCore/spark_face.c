@@ -13,6 +13,14 @@ static uint32_t s_eye_color_hex = 0x1AC8DB;
 
 // Static configuration database for all faces
 static const spark_face_config_t SPARK_FACES[SPARK_FACE_COUNT] = {
+    [SPARK_FACE_BOOT] = {
+        .name = "BOOT",
+        .left_eye  = { .is_visible = false },
+        .right_eye = { .is_visible = false },
+        .mouth     = { .is_visible = false },
+        .tears_visible = false,
+        .default_transition_ms = 0
+    },
     [SPARK_FACE_NORMAL] = {
         .name = "NORMAL",
         .left_eye  = { .width = 100, .height = 165, .translate_x = 0, .translate_y = 0, .mask_top_y = -400, .mask_moon_y = -400, .is_visible = true },

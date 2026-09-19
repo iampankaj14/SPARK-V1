@@ -33,15 +33,14 @@ extern "C" {
 
 static void lvgl_task(void *param) {
     while (1) {
-        if (lvgl_port_lock(10)) {
-            uint32_t time_till_next = lv_timer_handler();
+        uint32_t time_till_next = 10;
+        if (lvgl_port_lock(20)) {
+            time_till_next = lv_timer_handler();
             lvgl_port_unlock();
             if (time_till_next < 10) time_till_next = 10;
             else if (time_till_next > 30) time_till_next = 30;
-            vTaskDelay(pdMS_TO_TICKS(time_till_next));
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(5));
         }
+        vTaskDelay(pdMS_TO_TICKS(time_till_next));
     }
     vTaskDelete(NULL);
 }
@@ -87,11 +86,58 @@ void Driver_Init(void)
         0);
 }
 
+#include <dirent.h>
+
+static void Auto_Play_SD_Audio(void) {
+    ESP_LOGI("SD_AUDIO", "Searching SD card for audio/music files to play...");
+    
+    // Check known file locations first
+    const char* paths[][2] = {
+        {"/sdcard/video", "audio.mp3"},
+        {"/sdcard/video", "audio.wav"},
+        {"/sdcard", "audio.mp3"},
+        {"/sdcard", "music.mp3"},
+        {"/sdcard", "song.mp3"}
+    };
+    for (size_t i = 0; i < sizeof(paths)/sizeof(paths[0]); i++) {
+        char fullpath[128];
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", paths[i][0], paths[i][1]);
+        struct stat st;
+        if (stat(fullpath, &st) == 0) {
+            ESP_LOGI("SD_AUDIO", "Found music file: %s! Starting playback on SmartElex Speaker...", fullpath);
+            Audio_Init();
+            Play_Music(paths[i][0], paths[i][1]);
+            return;
+        }
+    }
+
+    // Dynamic scan of /sdcard root directory
+    DIR *dir = opendir("/sdcard");
+    if (dir) {
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            if (strstr(entry->d_name, ".mp3") || strstr(entry->d_name, ".wav")) {
+                ESP_LOGI("SD_AUDIO", "Found music file in /sdcard: %s! Playing...", entry->d_name);
+                Audio_Init();
+                Play_Music("/sdcard", entry->d_name);
+                closedir(dir);
+                return;
+            }
+        }
+        closedir(dir);
+    }
+    ESP_LOGW("SD_AUDIO", "No .mp3 or .wav music file found on SD card");
+}
+
 extern "C" void app_main(void)
 {
     Driver_Init();
 
     SD_Init();
+    
+    // SparkAudioCodec manages I2S_NUM_0 — do NOT call Audio_Init() here here!
+    // SparkAudioCodec (initialized by Application) manages I2S_NUM_0 for speaker output.
+    // Calling Audio_Init() would claim I2S_NUM_0 first, causing a fatal conflict.
     LCD_Init();
     
     // Initialize LVGL

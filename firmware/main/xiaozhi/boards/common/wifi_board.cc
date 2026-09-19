@@ -4,11 +4,13 @@
 #include "application.h"
 #include "system_info.h"
 #include "settings.h"
+#include "Provisioning.h"
 #include "assets/lang_config.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_network.h>
+#include <esp_netif.h>
 #include <esp_log.h>
 #include <esp_mac.h>
 #include <utility>
@@ -127,8 +129,20 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             // make sure blufi resources has been released
             Blufi::GetInstance().deinit();
 #endif
+
             in_config_mode_ = false;
             ESP_LOGI(TAG, "Connected to WiFi: %s", data.c_str());
+
+            // Start HTTP/WebSocket server for Invisible Phone Voice Companion
+            StartVoicePortalHttpServer();
+
+            esp_netif_ip_info_t ip_info;
+            if (esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info) == ESP_OK) {
+                ESP_LOGI(TAG, "==================================================");
+                ESP_LOGI(TAG, "  🚀 DESKIMON IP ADDRESS: " IPSTR, IP2STR(&ip_info.ip));
+                ESP_LOGI(TAG, "  🌐 VOICE PORTAL URL:    http://" IPSTR "/voice", IP2STR(&ip_info.ip));
+                ESP_LOGI(TAG, "==================================================");
+            }
             break;
         case NetworkEvent::Scanning:
             ESP_LOGI(TAG, "WiFi scanning");

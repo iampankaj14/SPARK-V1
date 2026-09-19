@@ -8,14 +8,12 @@ static i2s_chan_handle_t i2s_rx_chan;
 
 uint8_t Volume = Volume_MAX - 2;
 bool Music_Next_Flag = 0;
-// static esp_err_t bsp_i2s_write(void *audio_buffer, size_t len, size_t *bytes_written, uint32_t timeout_ms) {                     // I2S Write Init
-//     return i2s_channel_write(i2s_tx_chan, (char *)audio_buffer, len, bytes_written, timeout_ms);
-// }
+
 static esp_err_t bsp_i2s_write(void *audio_buffer, size_t len, size_t *bytes_written, uint32_t timeout_ms) {
     int16_t *samples = (int16_t *)audio_buffer;
     size_t sample_count = len / sizeof(int16_t);
-    
-    // Convert 0-100 Volume to 0.0 - 4.0 scaling factor (max 400% volume)
+
+    // Convert 0-100 Volume to 0.0 - 4.0 scaling factor (max 400% volume boost for loud speaker output)
     float volume_factor = (Volume / 100.0f) * 4.0f;
 
     for (size_t i = 0; i < sample_count; i++) {

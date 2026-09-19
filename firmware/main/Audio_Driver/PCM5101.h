@@ -15,7 +15,7 @@
 #define BSP_I2S_SCLK          (GPIO_NUM_48) 
 #define BSP_I2S_MCLK          (GPIO_NUM_NC) 
 #define BSP_I2S_LCLK          (GPIO_NUM_38) 
-#define BSP_I2S_DOUT          (GPIO_NUM_47) 
+#define BSP_I2S_DOUT          (GPIO_NUM_47) // Onboard PCM5101 DAC → SPK+/SPK- connector → SmartElex Speaker
 #define BSP_I2S_DSIN          (GPIO_NUM_NC) 
 
 #define BSP_I2S_GPIO_CFG       \

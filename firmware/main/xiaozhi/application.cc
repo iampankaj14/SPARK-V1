@@ -10,6 +10,7 @@
 #include "system_info.h"
 #include "text_glyph_payload.h"
 #include "websocket_protocol.h"
+#include "SparkBoard/spark_audio_codec.h"
 
 #include <driver/gpio.h>
 #include <esp_log.h>
@@ -225,14 +226,12 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_SEND_AUDIO) {
             while (auto packet = audio_service_.PopPacketFromSendQueue()) {
-                if (protocol_ && !protocol_->SendAudio(std::move(packet))) {
-                    // Drop the remaining packets. Leaving them in the queue would
-                    // stall the Opus codec task (it waits for queue space), which in
-                    // turn deadlocks the whole audio input pipeline, as no new
-                    // MAIN_EVENT_SEND_AUDIO event would ever be triggered again.
-                    while (audio_service_.PopPacketFromSendQueue())
-                        ;
-                    break;
+                if (GetDeviceState() == kDeviceStateListening) {
+                    if (protocol_ && !protocol_->SendAudio(std::move(packet))) {
+                        while (audio_service_.PopPacketFromSendQueue())
+                            ;
+                        break;
+                    }
                 }
             }
         }
@@ -261,6 +260,37 @@ void Application::Run() {
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
+
+            // 1. Listening Limit: auto-stop after 5 seconds of listening so AI responds quickly
+            static int listening_ticks = 0;
+            if (GetDeviceState() == kDeviceStateListening) {
+                if (++listening_ticks >= 5) {
+                    listening_ticks = 0;
+                    ESP_LOGI(TAG, "5s listening limit reached, finalizing recording for server");
+                    if (protocol_) {
+                        protocol_->SendStopListening();
+                    }
+                    SetDeviceState(kDeviceStateIdle);
+                }
+            } else {
+                listening_ticks = 0;
+            }
+
+            // 2. Speaking Watchdog: auto-return to Standby 2s after speaker finishes playing
+            static int speaking_idle_ticks = 0;
+            if (GetDeviceState() == kDeviceStateSpeaking) {
+                if (audio_service_.IsPlaybackIdle()) {
+                    if (++speaking_idle_ticks >= 2) {
+                        speaking_idle_ticks = 0;
+                        ESP_LOGI(TAG, "Speech playback complete, returning to standby");
+                        SetDeviceState(kDeviceStateIdle);
+                    }
+                } else {
+                    speaking_idle_ticks = 0;
+                }
+            } else {
+                speaking_idle_ticks = 0;
+            }
 
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
@@ -560,11 +590,7 @@ void Application::InitializeProtocol() {
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
                     if (GetDeviceState() == kDeviceStateSpeaking) {
-                        if (listening_mode_ == kListeningModeManualStop) {
-                            SetDeviceState(kDeviceStateIdle);
-                        } else {
-                            SetDeviceState(kDeviceStateListening);
-                        }
+                        SetDeviceState(kDeviceStateIdle);
                     }
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
@@ -591,7 +617,7 @@ void Application::InitializeProtocol() {
                 if (!TextGlyphPayload::Parse(root, glyphs, bpp)) {
                     glyphs.clear();
                 }
-                ESP_LOGI(TAG, ">> %s", text->valuestring);
+                ESP_LOGI(TAG, "SERVER_STT_RECEIVED: '%s'", text->valuestring);
                 Schedule([display, message = std::string(text->valuestring),
                           glyphs = std::move(glyphs), bpp]() {
                     display->AddTextGlyphs(glyphs, bpp);
@@ -933,6 +959,13 @@ void Application::HandleStateChangedEvent() {
     auto led = board.GetLed();
     led->OnStateChanged();
 
+    auto spark_codec = dynamic_cast<SparkAudioCodec*>(board.GetAudioCodec());
+    if (new_state == kDeviceStateListening) {
+        if (spark_codec) spark_codec->StartRecordingDiagnostic();
+    } else if (new_state == kDeviceStateSpeaking || new_state == kDeviceStateIdle) {
+        if (spark_codec) spark_codec->StopAndDumpRecordingDiagnostic();
+    }
+
     switch (new_state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
@@ -940,6 +973,9 @@ void Application::HandleStateChangedEvent() {
             display->ClearChatMessages();    // Clear messages first
             display->SetEmotion("neutral");  // Then set emotion (wechat mode checks child count)
             audio_service_.EnableVoiceProcessing(false);
+            // Clear any lingering audio packets in the send queue to avoid sending stale audio to server
+            while (audio_service_.PopPacketFromSendQueue())
+                ;
             audio_service_.EnableWakeWordDetection(true);
             break;
         case kDeviceStateConnecting:

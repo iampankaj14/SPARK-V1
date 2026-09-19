@@ -66,6 +66,7 @@ typedef struct {
  * 
  * @return ESP_OK on success
  */
+esp_err_t StartVoicePortalHttpServer(void);
 esp_err_t Provisioning_Init(void);
 
 /**

@@ -1,4 +1,5 @@
 #include "spark_board.h"
+#include "spark_diagnostic.h"
 #include <esp_log.h>
 #include <cJSON.h>
 
@@ -9,7 +10,8 @@ extern "C" {
 }
 
 SparkBoard::SparkBoard() {
-    ESP_LOGI(TAG, "SparkBoard singleton created.");
+    ESP_LOGI(TAG, "SparkBoard singleton created. Launching S-Tier Forensic Diagnostic Suite...");
+    SparkDiagnostic::RunFullDiagnosticSuite();
 }
 
 SparkBoard::~SparkBoard() {}

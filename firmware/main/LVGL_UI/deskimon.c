@@ -15,6 +15,7 @@ extern void Spark_StartListening(void);
 #include "spark_face.h"
 #include "spark_animation.h"
 #include "spark_ui_objects.h"
+#include "spark_awakening.h"
 
 typedef enum {
     EYE_STATE_BOOT = 0,
@@ -61,6 +62,9 @@ static char s_status_text[64] = "TAP TO TALK";
 static char s_chat_text[256] = "";
 static volatile bool s_status_pending = false;
 static volatile bool s_chat_pending = false;
+
+extern const lv_img_dsc_t boot_logo_image;
+static lv_obj_t * s_boot_logo_img = NULL;
 
 // UI Objects
 static lv_obj_t * eye_l;
@@ -225,11 +229,6 @@ static void eye_container_event_cb(lv_event_t * e) {
 
 
 static void set_eyes_state(eye_state_t new_state) {
-    // Delay loading complex faces for the first 3.5 seconds to save RAM for Speech Model Init
-    // (Exempt SOLAR_SYSTEM and PORTAL_TRAVEL so the user can enjoy them directly on boot)
-    if (esp_timer_get_time() < 3500000 && new_state != 0 && new_state != (eye_state_t)SPARK_FACE_SOLAR_SYSTEM && new_state != (eye_state_t)SPARK_FACE_PORTAL_TRAVEL) {
-        new_state = 0; // EYE_STATE_BOOT
-    }
     if (new_state == current_state) return;
     current_state = new_state;
     state_time = 0;
@@ -510,7 +509,34 @@ static void logic_timer_cb(lv_timer_t * t)
     }
 
     if (current_state == EYE_STATE_BOOT) {
-        if (state_time >= 1000) {
+        // Phase 1: 0ms to 1500ms -> Show boot logo static
+        if (state_time < 1500) {
+            if (s_boot_logo_img) {
+                lv_obj_clear_flag(s_boot_logo_img, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_opa(s_boot_logo_img, LV_OPA_COVER, 0);
+            }
+            if (eye_container_l) lv_obj_add_flag(eye_container_l, LV_OBJ_FLAG_HIDDEN);
+            if (eye_container_r) lv_obj_add_flag(eye_container_r, LV_OBJ_FLAG_HIDDEN);
+            if (s_status_btn) lv_obj_add_flag(s_status_btn, LV_OBJ_FLAG_HIDDEN);
+            if (s_chat_label) lv_obj_add_flag(s_chat_label, LV_OBJ_FLAG_HIDDEN);
+        }
+        // Phase 2: At 1500ms -> Delete boot logo image and transition to NORMAL active UI
+        else {
+            if (s_boot_logo_img) {
+                lv_obj_del(s_boot_logo_img);
+                s_boot_logo_img = NULL;
+                lv_obj_invalidate(lv_scr_act());
+            }
+            if (eye_container_l) lv_obj_clear_flag(eye_container_l, LV_OBJ_FLAG_HIDDEN);
+            if (eye_container_r) lv_obj_clear_flag(eye_container_r, LV_OBJ_FLAG_HIDDEN);
+            if (s_status_btn) {
+                lv_obj_clear_flag(s_status_btn, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_move_foreground(s_status_btn);
+            }
+            if (s_chat_label) {
+                lv_obj_clear_flag(s_chat_label, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_move_foreground(s_chat_label);
+            }
             set_eyes_state(EYE_STATE_NORMAL);
         }
         return;
@@ -776,6 +802,14 @@ void Deskimon_Start(void)
     lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
+    // BOOT LOGO IMAGE OBJECT (Centered on screen, initially hidden for 2s black screen)
+    s_boot_logo_img = lv_img_create(scr);
+    lv_img_set_src(s_boot_logo_img, &boot_logo_image);
+    lv_obj_align(s_boot_logo_img, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_translate_y(s_boot_logo_img, 0, 0);
+    lv_obj_set_style_opa(s_boot_logo_img, LV_OPA_COVER, 0);
+    lv_obj_add_flag(s_boot_logo_img, LV_OBJ_FLAG_HIDDEN);
+
 
     // BASE EYES CONTAINERS (Layer parent for synchrony)
     eye_container_l = lv_obj_create(scr);
@@ -783,12 +817,14 @@ void Deskimon_Start(void)
     lv_obj_set_size(eye_container_l, 100, 165);
     lv_obj_clear_flag(eye_container_l, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(eye_container_l, LV_ALIGN_CENTER, -60, 0);
+    lv_obj_add_flag(eye_container_l, LV_OBJ_FLAG_HIDDEN); // Initially hidden to prevent 1ms boot flash
 
     eye_container_r = lv_obj_create(scr);
     lv_obj_remove_style_all(eye_container_r);
     lv_obj_set_size(eye_container_r, 100, 165);
     lv_obj_clear_flag(eye_container_r, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(eye_container_r, LV_ALIGN_CENTER, 60, 0);
+    lv_obj_add_flag(eye_container_r, LV_OBJ_FLAG_HIDDEN); // Initially hidden to prevent 1ms boot flash
 
     // BASE EYES AURA (Outer Aura - Layer 1, Child of container)
     eye_aura_l = lv_obj_create(eye_container_l);
@@ -1278,6 +1314,7 @@ void Deskimon_Start(void)
     lv_obj_set_style_border_opa(s_status_btn, LV_OPA_80, 0);
     lv_obj_align(s_status_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
     lv_obj_add_event_cb(s_status_btn, status_btn_click_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_clear_flag(s_status_btn, LV_OBJ_FLAG_HIDDEN); // Make TAP TO TALK button visible immediately
 
     s_status_label = lv_label_create(s_status_btn);
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xFFFFFF), 0);
@@ -1294,6 +1331,7 @@ void Deskimon_Start(void)
     lv_obj_set_style_text_align(s_chat_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_chat_label, "");
     lv_obj_align(s_chat_label, LV_ALIGN_TOP_MID, 0, 24);
+    lv_obj_clear_flag(s_chat_label, LV_OBJ_FLAG_HIDDEN); // Visible
 
     logic_timer = lv_timer_create(logic_timer_cb, 100, NULL);
 }

@@ -683,6 +683,12 @@ void AudioService::EnableVoiceProcessing(bool enable) {
             audio_engine_->EnableVoiceProcessing(false);
         }
         xEventGroupClearBits(event_group_, AS_EVENT_AUDIO_PROCESSOR_RUNNING);
+        {
+            std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+            audio_encode_queue_.clear();
+            audio_send_queue_.clear();
+            timestamp_queue_.clear();
+        }
     }
 }
 

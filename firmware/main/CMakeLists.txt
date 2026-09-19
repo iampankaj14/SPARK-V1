@@ -20,11 +20,20 @@ idf_component_register(
                               "./SparkCore/spark_emotion.c"
                               "./SparkCore/spark_solar_system.c"
                               "./SparkCore/spark_portal_travel.c"
+                              "./SparkCore/spark_awakening.c"
+                              "./Provisioning/Provisioning.c"
+                              "./Provisioning/dns_server.c"
                               "./assets/portal_frames.c"
+                              "./Assets/boot_logo_image.c"
+                              "./Assets/font_space_age_18.c"
+                              "./Assets/font_deadspace_22.c"
+                              "./Assets/font_space_age_24.c"
+                              "./Assets/font_deadspace_36.c"
 
                               "./SparkBoard/spark_board.cc"
                               "./SparkBoard/spark_display.cc"
                               "./SparkBoard/spark_audio_codec.cc"
+                              "./SparkBoard/spark_diagnostic.cc"
 
                               "./xiaozhi/application.cc"
                               "./xiaozhi/device_state_machine.cc"
@@ -103,6 +112,8 @@ idf_component_register(
                               "./xiaozhi/assets/common/popup.ogg"
                               "./xiaozhi/assets/common/success.ogg"
                               "./xiaozhi/assets/common/vibration.ogg"
+                              "./xiaozhi/assets/voice_portal.html"
+                              "./Provisioning/portal.html"
 
                          PRIV_REQUIRES
                               esp_websocket_client

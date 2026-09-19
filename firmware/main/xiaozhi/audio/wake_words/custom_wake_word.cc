@@ -91,8 +91,14 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) 
         models_ = esp_srmodel_init("model");
         owns_models_ = models_ != nullptr;
 #ifdef CONFIG_CUSTOM_WAKE_WORD
+#ifndef CONFIG_CUSTOM_WAKE_WORD_THRESHOLD
+#define CONFIG_CUSTOM_WAKE_WORD_THRESHOLD 60
+#endif
+#ifndef CONFIG_CUSTOM_WAKE_WORD_DISPLAY
+#define CONFIG_CUSTOM_WAKE_WORD_DISPLAY "Hey Spark"
+#endif
         threshold_ = CONFIG_CUSTOM_WAKE_WORD_THRESHOLD / 100.0f;
-        commands_.push_back({CONFIG_CUSTOM_WAKE_WORD, CONFIG_CUSTOM_WAKE_WORD_DISPLAY, "wake"});
+        commands_.push_back(Command{"Hey Spark", std::string(CONFIG_CUSTOM_WAKE_WORD_DISPLAY), "wake"});
 #endif
     } else {
         models_ = models_list;
