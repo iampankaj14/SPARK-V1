@@ -368,11 +368,34 @@ int SparkAudioCodec::Read(int16_t* dest, int samples) {
         return samples;
     }
 
+    // High-pass DC-blocking filter for INMP441 MEMS microphone
+    // Eliminates hardware DC bias (~-0x38000000) that causes digital clipping & static noise
+    static int32_t dc_offset = 0;
+    static bool dc_initialized = false;
+
     int read_samples = bytes_read / sizeof(int32_t);
     for (int i = 0; i < read_samples; i++) {
-        // INMP441 outputs 24-bit audio sign-extended in 32-bit container
-        // Shift right by 14 to convert to 16-bit signed PCM
-        dest[i] = (int16_t)(rx_temp_buf_[i] >> 14);
+        int32_t raw = rx_temp_buf_[i];
+        
+        if (!dc_initialized) {
+            dc_offset = raw;
+            dc_initialized = true;
+        } else {
+            // Smoothly track and subtract DC drift with ~5Hz cutoff at 16kHz
+            dc_offset += (raw - dc_offset) >> 9;
+        }
+        
+        int32_t ac = raw - dc_offset;
+        
+        // Convert 24-bit audio in 32-bit container to 16-bit PCM:
+        // >> 15 gives clean, clear voice level without clipping or noise floor amplification
+        int32_t sample = ac >> 15;
+        
+        // Hard saturation clamp to prevent 16-bit integer wrap-around distortion
+        if (sample > 32767) sample = 32767;
+        else if (sample < -32768) sample = -32768;
+        
+        dest[i] = (int16_t)sample;
     }
 
     if (read_samples < samples) {

@@ -445,6 +445,12 @@ void Application::CheckAssetsVersion() {
 }
 
 void Application::CheckNewVersion() {
+    std::string url = ota_ ? ota_->GetCheckVersionUrl() : "";
+    if (url.empty() || url == "http://localhost/ota" || url.find("localhost") != std::string::npos || url == "disabled") {
+        ESP_LOGI(TAG, "OTA URL is disabled or local (%s), skipping version check.", url.c_str());
+        return;
+    }
+
     const int MAX_RETRY = 10;
     int retry_count = 0;
     int retry_delay = 10;  // Initial retry delay in seconds

@@ -83,9 +83,12 @@ esp_err_t Ota::CheckVersion() {
     ESP_LOGI(TAG, "Current version: %s", current_version_.c_str());
 
     std::string url = GetCheckVersionUrl();
-    if (url.length() < 10) {
-        ESP_LOGE(TAG, "Check version URL is not properly set");
-        return ESP_ERR_INVALID_ARG;
+    if (url.empty() || url.length() < 10 || url == "http://localhost/ota" || url.find("localhost") != std::string::npos || url == "disabled") {
+        ESP_LOGI(TAG, "OTA server disabled or local dummy URL (%s), bypassing version check.", url.c_str());
+        has_new_version_ = false;
+        has_activation_code_ = false;
+        has_activation_challenge_ = false;
+        return ESP_OK;
     }
 
     auto http = SetupHttp();

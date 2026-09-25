@@ -158,7 +158,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
     afe_config->wakenet_mode = DET_MODE_90;
     afe_config->afe_ringbuf_size = 10;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
-    afe_config->afe_linear_gain = 4.0f;  // MSM261 mic output is quiet; boost to usable level
+    afe_config->afe_linear_gain = 1.0f;  // INMP441 is high sensitivity (-26dBFS); unity gain avoids digital clipping
 
     afe_iface_ = esp_afe_handle_from_config(afe_config);
     if (afe_iface_ != nullptr) {
@@ -220,7 +220,7 @@ void AfeAudioEngine::Feed(std::vector<int16_t>&& data) {
         OutputRawAudio(data);
     }
     
-    // Diagnostic: measure microphone amplitude
+    // Diagnostic: measure external INMP441 microphone amplitude & provide live VU meter
     static int pcm_check_counter = 0;
     static int64_t sum_sq = 0;
     static int sample_count = 0;
@@ -234,9 +234,21 @@ void AfeAudioEngine::Feed(std::vector<int16_t>&& data) {
         }
     }
     
-    if (++pcm_check_counter >= 50) { // approx every 1.6 seconds (50 * 32ms)
+    int trigger_threshold = (bits & kVoiceProcessingEnabled) ? 15 : 40; // 150ms when listening, 400ms when idle
+    if (++pcm_check_counter >= trigger_threshold || max_val > 4000) {
         double rms = sqrt((double)sum_sq / (sample_count ? sample_count : 1));
-        ESP_LOGI("AFE_MIC_DIAG", "Mic signal RMS: %.1f, Max Amp: %d", rms, max_val);
+        int bars = (int)(rms / 120);
+        if (bars > 16) bars = 16;
+        char bar_str[17];
+        for (int b = 0; b < 16; b++) bar_str[b] = (b < bars) ? '#' : '-';
+        bar_str[16] = '\0';
+
+        const char* status = "Ambient";
+        if (max_val > 10000) status = "*** INMP441 HIGH PEAK / TAP DETECTED ***";
+        else if (max_val > 3500) status = ">> VOICE / SOUND DETECTED <<";
+
+        ESP_LOGI("INMP441_MIC", "[%s] RMS:%4.0f Max:%5d | %s%s",
+                 bar_str, rms, max_val, (bits & kVoiceProcessingEnabled) ? "[LISTENING] " : "", status);
         pcm_check_counter = 0;
         sum_sq = 0;
         sample_count = 0;

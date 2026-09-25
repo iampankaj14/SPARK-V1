@@ -732,6 +732,9 @@ static void screen_event_cb(lv_event_t * e) {
     }
     else if (code == LV_EVENT_LONG_PRESSED) {
         ESP_LOGI("LATENCY_AUDIT", "[LATENCY] Long Press: %lld ms", esp_timer_get_time() / 1000);
+        ESP_LOGI("MIC_SOURCE_AUDIT", ">>> [TAP-TO-TALK] SCREEN LONG-PRESS TRIGGERED! <<<");
+        ESP_LOGI("MIC_SOURCE_AUDIT", "Active Mic: EXTERNAL INMP441 (Pins: SD=GPIO3, SCK=GPIO13, WS=GPIO12)");
+        ESP_LOGI("MIC_SOURCE_AUDIT", "Onboard MSM261 (GPIO39/15/2): 100%% INACTIVE & UNCONNECTED TO I2S");
         Spark_StartListening();
     }
     else if (code == LV_EVENT_RELEASED) {
@@ -740,7 +743,12 @@ static void screen_event_cb(lv_event_t * e) {
 }
 
 static void status_btn_click_cb(lv_event_t * e) {
-    ESP_LOGI("DESKIMON_UI", "On-screen Tap-to-Talk button clicked!");
+    ESP_LOGI("MIC_SOURCE_AUDIT", "=================================================================");
+    ESP_LOGI("MIC_SOURCE_AUDIT", ">>> [TAP-TO-TALK] ON-SCREEN BUTTON CLICKED BY USER! <<<");
+    ESP_LOGI("MIC_SOURCE_AUDIT", "Active Audio Source: EXTERNAL INMP441 MEMS MICROPHONE");
+    ESP_LOGI("MIC_SOURCE_AUDIT", "Physical Pins: DIN=GPIO3 (Pin 8), BCLK=GPIO13 (Pin 1), WS=GPIO12 (Pin 3)");
+    ESP_LOGI("MIC_SOURCE_AUDIT", "Onboard Mic (MSM261 on GPIO39/15/2): TOTALLY DISABLED & UNREAD");
+    ESP_LOGI("MIC_SOURCE_AUDIT", "=================================================================");
     Spark_StartListening();
 }
 

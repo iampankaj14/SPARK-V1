@@ -9,7 +9,7 @@ last_data_time = time.time()
 while time.time() - start < 40:
     if ser is None:
         try:
-            ser = serial.Serial('/dev/cu.usbmodem14301', 115200, timeout=0.1)
+            ser = serial.Serial('COM4', 115200, timeout=0.1)
             ser.dtr = False
             ser.rts = False
             print("[Connected]")
@@ -23,7 +23,7 @@ while time.time() - start < 40:
             print(line.decode('utf-8', errors='replace').strip())
             last_data_time = time.time()
         else:
-            if time.time() - last_data_time > 3.0:
+            if time.time() - last_data_time > 20.0:
                 print("[Timeout - Reconnecting]")
                 ser.close()
                 ser = None
