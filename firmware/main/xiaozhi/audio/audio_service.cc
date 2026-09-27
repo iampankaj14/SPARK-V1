@@ -132,9 +132,9 @@ void AudioService::Start() {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->AudioInputTask();
         vTaskDelete(NULL);
-    }, "audio_input", 2048 * 3, this, 8, &audio_input_task_handle_, 0);
+    }, "audio_input", 2048 * 3, this, 7, &audio_input_task_handle_, 0);
 
-    /* Start the audio output task */
+    /* Start the audio output task (lower than input; I2S DMA buffers absorb scheduling jitter) */
     xTaskCreate([](void* arg) {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->AudioOutputTask();
@@ -146,17 +146,17 @@ void AudioService::Start() {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->AudioInputTask();
         vTaskDelete(NULL);
-    }, "audio_input", 2048 * 2, this, 8, &audio_input_task_handle_);
+    }, "audio_input", 2048 * 2, this, 7, &audio_input_task_handle_);
 
-    /* Start the audio output task */
+    /* Start the audio output task (lower than input; I2S DMA buffers absorb scheduling jitter) */
     xTaskCreate([](void* arg) {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->AudioOutputTask();
         vTaskDelete(NULL);
-    }, "audio_output", 2048, this, 4, &audio_output_task_handle_);
+    }, "audio_output", 2048 * 2, this, 4, &audio_output_task_handle_);
 #endif
 
-    /* Start the opus codec task (Stack allocated in PSRAM to preserve internal SRAM) */
+    /* Start the opus codec task (priority 6: runs above UI & background tasks to guarantee zero frame drops) */
     StackType_t* opus_stack = (StackType_t*)heap_caps_malloc(2048 * 12 * sizeof(StackType_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     StaticTask_t* opus_tcb = (StaticTask_t*)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (opus_stack && opus_tcb) {
@@ -164,13 +164,13 @@ void AudioService::Start() {
             AudioService* audio_service = (AudioService*)arg;
             audio_service->OpusCodecTask();
             vTaskDelete(NULL);
-        }, "opus_codec", 2048 * 12, this, 2, opus_stack, opus_tcb);
+        }, "opus_codec", 2048 * 12, this, 6, opus_stack, opus_tcb);
     } else {
         xTaskCreate([](void* arg) {
             AudioService* audio_service = (AudioService*)arg;
             audio_service->OpusCodecTask();
             vTaskDelete(NULL);
-        }, "opus_codec", 2048 * 12, this, 2, &opus_codec_task_handle_);
+        }, "opus_codec", 2048 * 12, this, 6, &opus_codec_task_handle_);
     }
 }
 

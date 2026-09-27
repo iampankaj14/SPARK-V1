@@ -21,3 +21,7 @@ venv/
 firmware/.cache/
 firmware/components_backup/
 firmware/xiaozhi-src/
+*.log
+crash_capture.txt
+live_verification.txt
+firmware/crash_log*.txt

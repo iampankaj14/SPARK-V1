@@ -1,41 +1,33 @@
 import serial
 import time
+import sys
 
-print("Listening to serial port with auto-reconnect...")
+duration = float(sys.argv[1]) if len(sys.argv) > 1 else 30.0
+print(f"Listening to COM4 (safe no-reset) for {duration}s...", flush=True)
 start = time.time()
 ser = None
-last_data_time = time.time()
 
-while time.time() - start < 40:
-    if ser is None:
+try:
+    ser = serial.Serial()
+    ser.port = 'COM4'
+    ser.baudrate = 115200
+    ser.timeout = 0.1
+    ser.dtr = False
+    ser.rts = False
+    ser.open()
+    print("[Connected without chip reset]", flush=True)
+except Exception as e:
+    print(f"[Open Error: {e}]", flush=True)
+
+if ser and ser.is_open:
+    while time.time() - start < duration:
         try:
-            ser = serial.Serial('COM4', 115200, timeout=0.1)
-            ser.dtr = False
-            ser.rts = False
-            print("[Connected]")
-            last_data_time = time.time()
+            line = ser.readline()
+            if line:
+                print(line.decode('utf-8', errors='replace').strip(), flush=True)
         except Exception as e:
-            time.sleep(0.5)
-            continue
-    try:
-        line = ser.readline()
-        if line:
-            print(line.decode('utf-8', errors='replace').strip())
-            last_data_time = time.time()
-        else:
-            if time.time() - last_data_time > 20.0:
-                print("[Timeout - Reconnecting]")
-                ser.close()
-                ser = None
-                time.sleep(0.5)
-    except serial.SerialException:
-        print("[Disconnected]")
-        ser.close()
-        ser = None
-        time.sleep(0.5)
-    except Exception as e:
-        print(f"Error: {e}")
-        time.sleep(0.5)
-if ser:
+            print(f"Read error: {e}", flush=True)
+            break
     ser.close()
-print("[Finished]")
+
+print("[Finished]", flush=True)

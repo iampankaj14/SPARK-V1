@@ -4,6 +4,8 @@
 #include "audio_codec.h"
 #include <driver/i2s_std.h>
 #include <mutex>
+#include <atomic>
+#include <esp_timer.h>
 
 class SparkAudioCodec : public AudioCodec {
 public:
@@ -13,6 +15,7 @@ public:
     virtual void SetOutputVolume(int volume) override;
     virtual void EnableInput(bool enable) override;
     virtual void EnableOutput(bool enable) override;
+    virtual bool IsSpeakerActive() const override;
 
     void StartRecordingDiagnostic();
     void StopAndDumpRecordingDiagnostic();
@@ -48,6 +51,13 @@ private:
 
     // Ring buffer for virtual microphone audio injected from WebSockets/Phone
     std::vector<int16_t> virtual_mic_buf_;
+
+    // Last time audio was written to speaker I2S (in microseconds)
+    mutable std::atomic<int64_t> last_write_timestamp_us_{0};
+
+    // Fixed buffer for stereo sample conversion in Write(), completely eliminating stack allocation
+    static const int TX_CHUNK_MONO_SAMPLES = 256;
+    int16_t tx_stereo_buf_[TX_CHUNK_MONO_SAMPLES * 2];
 };
 
 #ifdef __cplusplus

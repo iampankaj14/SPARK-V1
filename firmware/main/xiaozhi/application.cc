@@ -225,12 +225,16 @@ void Application::Run() {
         }
 
         if (bits & MAIN_EVENT_SEND_AUDIO) {
+            static int sent_pkt_count = 0;
             while (auto packet = audio_service_.PopPacketFromSendQueue()) {
                 if (GetDeviceState() == kDeviceStateListening) {
                     if (protocol_ && !protocol_->SendAudio(std::move(packet))) {
                         while (audio_service_.PopPacketFromSendQueue())
                             ;
                         break;
+                    }
+                    if (++sent_pkt_count % 25 == 0) { // Log every 1.5 seconds of streamed voice
+                        ESP_LOGI(TAG, "AudioStream: Streamed %d Opus packets to server", sent_pkt_count);
                     }
                 }
             }
@@ -261,12 +265,12 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
-            // 1. Listening Limit: auto-stop after 5 seconds of listening so AI responds quickly
+            // 1. Listening Limit: auto-stop after 15 seconds of listening as fallback if server cloud VAD doesn't close
             static int listening_ticks = 0;
             if (GetDeviceState() == kDeviceStateListening) {
-                if (++listening_ticks >= 5) {
+                if (++listening_ticks >= 15) {
                     listening_ticks = 0;
-                    ESP_LOGI(TAG, "5s listening limit reached, finalizing recording for server");
+                    ESP_LOGI(TAG, "15s listening limit reached, finalizing recording for server");
                     if (protocol_) {
                         protocol_->SendStopListening();
                     }
@@ -276,20 +280,34 @@ void Application::Run() {
                 listening_ticks = 0;
             }
 
-            // 2. Speaking Watchdog: auto-return to Standby 2s after speaker finishes playing
+            // 2. Speaking Watchdog: handles clean return to Standby and timeout safety
             static int speaking_idle_ticks = 0;
             if (GetDeviceState() == kDeviceStateSpeaking) {
                 if (audio_service_.IsPlaybackIdle()) {
-                    if (++speaking_idle_ticks >= 2) {
-                        speaking_idle_ticks = 0;
-                        ESP_LOGI(TAG, "Speech playback complete, returning to standby");
-                        SetDeviceState(kDeviceStateIdle);
+                    if (tts_stopped_) {
+                        // Wait 2 full seconds of idle silence after tts stop to allow multi-sentence streaming
+                        if (++speaking_idle_ticks >= 2) {
+                            speaking_idle_ticks = 0;
+                            tts_stopped_ = false;
+                            ESP_LOGI(TAG, "Speech playback complete (tts stop received), returning to standby");
+                            SetDeviceState(kDeviceStateIdle);
+                        }
+                    } else {
+                        // Server is still processing an API / LLM response (e.g. weather, live info, music query)
+                        // Give the cloud server up to 10 seconds before timing out
+                        if (++speaking_idle_ticks >= 10) {
+                            speaking_idle_ticks = 0;
+                            tts_stopped_ = false;
+                            ESP_LOGW(TAG, "Speech timeout waiting for audio (10s idle), returning to standby");
+                            SetDeviceState(kDeviceStateIdle);
+                        }
                     }
                 } else {
                     speaking_idle_ticks = 0;
                 }
             } else {
                 speaking_idle_ticks = 0;
+                tts_stopped_ = false;
             }
 
             // Print debug info every 10 seconds
@@ -552,9 +570,15 @@ void Application::InitializeProtocol() {
     });
 
     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
-        if (GetDeviceState() == kDeviceStateSpeaking) {
-            audio_service_.PushPacketToDecodeQueue(std::move(packet));
+        if (aborted_) {
+            return;
         }
+        tts_stopped_ = false;
+        if (GetDeviceState() != kDeviceStateSpeaking) {
+            ESP_LOGI(TAG, "Audio packet received while state=%d; activating Speaking state", (int)GetDeviceState());
+            SetDeviceState(kDeviceStateSpeaking);
+        }
+        audio_service_.PushPacketToDecodeQueue(std::move(packet));
     });
 
     protocol_->OnAudioChannelOpened([this, codec, &board]() {
@@ -591,13 +615,12 @@ void Application::InitializeProtocol() {
             if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
                     aborted_ = false;
+                    tts_stopped_ = false;
                     SetDeviceState(kDeviceStateSpeaking);
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
-                    if (GetDeviceState() == kDeviceStateSpeaking) {
-                        SetDeviceState(kDeviceStateIdle);
-                    }
+                    tts_stopped_ = true;
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
                 auto text = cJSON_GetObjectItem(root, "text");
@@ -608,8 +631,13 @@ void Application::InitializeProtocol() {
                         glyphs.clear();
                     }
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
-                    Schedule([display, message = std::string(text->valuestring),
+                    Schedule([this, display, message = std::string(text->valuestring),
                               glyphs = std::move(glyphs), bpp]() {
+                        aborted_ = false;
+                        tts_stopped_ = false;
+                        if (GetDeviceState() != kDeviceStateSpeaking) {
+                            SetDeviceState(kDeviceStateSpeaking);
+                        }
                         display->AddTextGlyphs(glyphs, bpp);
                         display->SetChatMessage("assistant", message.c_str());
                     });
@@ -871,19 +899,21 @@ void Application::HandleWakeWordDetectedEvent() {
         BeginWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
         AbortSpeaking(kAbortReasonWakeWordDetected);
+        audio_service_.ResetDecoder();
         // Clear send queue to avoid sending residues to server
         while (audio_service_.PopPacketFromSendQueue())
             ;
 
         if (state == kDeviceStateListening) {
             protocol_->SendStartListening(GetDefaultListeningMode());
-            audio_service_.ResetDecoder();
-            audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            // Do NOT play popup sound: without AEC, chime leaks into mic
             // Re-enable wake word detection as it was stopped by the detection itself
             audio_service_.EnableWakeWordDetection(true);
         } else {
-            // Play popup sound and start listening again
-            play_popup_on_listening_ = true;
+            // Wake word detected during Speaking (music barge-in or assistant speech interruption)
+            ESP_LOGI(TAG, "Barge-in / Wake word triggered during Speaking; switching to listening");
+            // Do NOT play popup sound: without AEC, chime leaks into mic and causes 'Yeah.' hallucination
+            play_popup_on_listening_ = false;
             SetListeningMode(GetDefaultListeningMode());
         }
     } else if (state == kDeviceStateActivating) {
@@ -946,9 +976,10 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     protocol_->SendWakeWordDetected(wake_word);
     SetListeningMode(GetDefaultListeningMode());
 #else
-    // Set flag to play popup sound after state changes to listening
-    // (PlaySound here would be cleared by ResetDecoder in EnableVoiceProcessing)
-    play_popup_on_listening_ = true;
+    // Do NOT play popup sound on listening start:
+    // Without AEC, the speaker chime leaks into the INMP441 mic, causing Whisper STT to hallucinate 'Yeah.'
+    // The screen UI & LED already provide immediate visual feedback!
+    play_popup_on_listening_ = false;
     SetListeningMode(GetDefaultListeningMode());
 #endif
 }
@@ -964,13 +995,6 @@ void Application::HandleStateChangedEvent() {
     auto display = board.GetDisplay();
     auto led = board.GetLed();
     led->OnStateChanged();
-
-    auto spark_codec = dynamic_cast<SparkAudioCodec*>(board.GetAudioCodec());
-    if (new_state == kDeviceStateListening) {
-        if (spark_codec) spark_codec->StartRecordingDiagnostic();
-    } else if (new_state == kDeviceStateSpeaking || new_state == kDeviceStateIdle) {
-        if (spark_codec) spark_codec->StopAndDumpRecordingDiagnostic();
-    }
 
     switch (new_state) {
         case kDeviceStateUnknown:
@@ -1013,10 +1037,9 @@ void Application::HandleStateChangedEvent() {
 
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_service_.EnableVoiceProcessing(false);
-                // Only AFE wake word can be detected in speaking mode
+                // Keep wake word detection enabled during speaking for music barge-in & interruption
                 audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
             }
-            audio_service_.ResetDecoder();
             break;
         case kDeviceStateWifiConfiguring:
             audio_service_.EnableVoiceProcessing(false);

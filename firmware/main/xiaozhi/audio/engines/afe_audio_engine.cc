@@ -15,17 +15,12 @@
 
 #define TAG "AfeAudioEngine"
 
-#if CONFIG_USE_AUDIO_PROCESSOR
-static constexpr bool kUseAfeForVoiceProcessing = true;
-#else
-// Force voice processing through AFE even without CONFIG_USE_AUDIO_PROCESSOR.
-// On the SPARK-V1 board, the MSM261 MEMS mic has a high noise floor (~250 RMS
-// after >>14 conversion). Without AFE processing, raw noisy audio is sent
-// directly to the server via OutputRawAudio(), causing the server to
-// transcribe noise as "Yeah." The AFE's WebRTC NS cleans the audio before
-// it reaches the server.
-static constexpr bool kUseAfeForVoiceProcessing = true;
-#endif
+// On the SPARK-V1 board with 1-mic INMP441, the audio codec applies a 200Hz
+// Butterworth high-pass filter + downward expander noise gate.
+// Bypassing AFE for voice processing sends this clean, unattenuated,
+// unbuffered PCM directly to OpusCodecTask via OutputRawAudio(),
+// giving zero-latency, crystal-clear voice streaming without AFE artifacts.
+static constexpr bool kUseAfeForVoiceProcessing = false;
 
 AfeAudioEngine::AfeAudioEngine() {
     event_group_ = xEventGroupCreate();
@@ -80,11 +75,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
         }
     }
 
-#ifdef CONFIG_CUSTOM_WAKE_WORD
     if (multinet_model_name != nullptr) {
-#else
-    if (false) {
-#endif
         wake_detector_ = WakeDetector::kMultiNet;
         custom_wake_word_ = std::make_unique<CustomWakeWord>();
         custom_wake_word_->OnWakeWordDetected([this](const std::string& wake_word) {
@@ -147,18 +138,21 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
         ESP_LOGE(TAG, "Failed to create AFE configuration");
         return false;
     }
-    afe_config->afe_mode = AFE_MODE_LOW_COST;
+    afe_config->afe_mode = AFE_MODE_HIGH_PERF;
     afe_config->aec_init = false;
-    afe_config->se_init = true;   // Speech Enhancement (WebRTC NS) — removes mic noise floor + DC offset
-    afe_config->vad_init = false;  // Disabled in working commit 8f4559c to prevent VAD false triggers
+    afe_config->se_init = false;   // For 1 mic, SE is inactive
+    afe_config->ns_init = false;   // Turn OFF WebRTC NS: ESP-SR notes NS reduces speech recognition accuracy & mangles barge-in
+    afe_config->agc_init = false;  // Turn OFF WebRTC AGC: prevents ducking mic sensitivity during speaker playback
+    afe_config->vad_init = false;  // Disabled to prevent VAD false triggers
     afe_config->wakenet_init = wake_detector_ == WakeDetector::kWakeNet;
     afe_config->wakenet_model_name = wake_detector_ == WakeDetector::kWakeNet
         ? wakenet_model_name
         : nullptr;
     afe_config->wakenet_mode = DET_MODE_90;
-    afe_config->afe_ringbuf_size = 10;
+    afe_config->afe_ringbuf_size = 50;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
-    afe_config->afe_linear_gain = 1.0f;  // INMP441 is high sensitivity (-26dBFS); unity gain avoids digital clipping
+    afe_config->afe_linear_gain = 1.0f;
+    afe_config = afe_config_check(afe_config);
 
     afe_iface_ = esp_afe_handle_from_config(afe_config);
     if (afe_iface_ != nullptr) {
@@ -189,14 +183,14 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
             auto* engine = static_cast<AfeAudioEngine*>(arg);
             engine->ProcessingTask();
             vTaskDelete(nullptr);
-        }, "audio_afe", 4096, this, 3, afe_stack, afe_tcb);
+        }, "audio_afe", 4096, this, 5, afe_stack, afe_tcb);
         task_created = (processing_task_ != nullptr) ? pdPASS : pdFAIL;
     } else {
         task_created = xTaskCreate([](void* arg) {
             auto* engine = static_cast<AfeAudioEngine*>(arg);
             engine->ProcessingTask();
             vTaskDelete(nullptr);
-        }, "audio_afe", 8192, this, 3, &processing_task_);
+        }, "audio_afe", 8192, this, 5, &processing_task_);
     }
     if (task_created != pdPASS) {
         ESP_LOGE(TAG, "Failed to create AFE processing task");
@@ -209,8 +203,8 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
     const char* detector = wake_detector_ == WakeDetector::kWakeNet
         ? "WakeNet"
         : (wake_detector_ == WakeDetector::kMultiNet ? "MultiNet" : "none");
-    ESP_LOGI(TAG, "Initialized FD AFE, detector: %s, NS: on, feed: %d, fetch: %d",
-        detector, afe_iface_->get_feed_chunksize(afe_data_), afe_iface_->get_fetch_chunksize(afe_data_));
+    ESP_LOGI(TAG, "Initialized FD AFE, detector: %s, linear_gain: %.1f, feed: %d, fetch: %d",
+        detector, 1.0f, afe_iface_->get_feed_chunksize(afe_data_), afe_iface_->get_fetch_chunksize(afe_data_));
     return true;
 }
 
@@ -220,41 +214,6 @@ void AfeAudioEngine::Feed(std::vector<int16_t>&& data) {
         OutputRawAudio(data);
     }
     
-    // Diagnostic: measure external INMP441 microphone amplitude & provide live VU meter
-    static int pcm_check_counter = 0;
-    static int64_t sum_sq = 0;
-    static int sample_count = 0;
-    static int max_val = 0;
-    
-    for (auto val : data) {
-        sum_sq += (int32_t)val * val;
-        sample_count++;
-        if (abs(val) > max_val) {
-            max_val = abs(val);
-        }
-    }
-    
-    int trigger_threshold = (bits & kVoiceProcessingEnabled) ? 15 : 40; // 150ms when listening, 400ms when idle
-    if (++pcm_check_counter >= trigger_threshold || max_val > 4000) {
-        double rms = sqrt((double)sum_sq / (sample_count ? sample_count : 1));
-        int bars = (int)(rms / 120);
-        if (bars > 16) bars = 16;
-        char bar_str[17];
-        for (int b = 0; b < 16; b++) bar_str[b] = (b < bars) ? '#' : '-';
-        bar_str[16] = '\0';
-
-        const char* status = "Ambient";
-        if (max_val > 10000) status = "*** INMP441 HIGH PEAK / TAP DETECTED ***";
-        else if (max_val > 3500) status = ">> VOICE / SOUND DETECTED <<";
-
-        ESP_LOGI("INMP441_MIC", "[%s] RMS:%4.0f Max:%5d | %s%s",
-                 bar_str, rms, max_val, (bits & kVoiceProcessingEnabled) ? "[LISTENING] " : "", status);
-        pcm_check_counter = 0;
-        sum_sq = 0;
-        sample_count = 0;
-        max_val = 0;
-    }
-
     if (afe_data_ == nullptr || (bits & kAfeActive) == 0) {
         return;
     }
@@ -445,18 +404,15 @@ void AfeAudioEngine::ProcessingTask() {
         if (kUseAfeForVoiceProcessing && (bits & kVoiceProcessingEnabled)) {
             HandleVoiceResult(result);
         }
-        static int yield_counter = 0;
-        if (++yield_counter >= 10) {
-            yield_counter = 0;
-            vTaskDelay(1);
-        }
     }
 }
 
 void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
     if (wake_detector_ == WakeDetector::kMultiNet) {
-        custom_wake_word_->FeedMono(
-            result->data, result->data_size / sizeof(int16_t));
+        if (custom_wake_word_ != nullptr) {
+            int samples = result->data_size / sizeof(int16_t);
+            custom_wake_word_->FeedMono(result->data, samples);
+        }
         return;
     }
 

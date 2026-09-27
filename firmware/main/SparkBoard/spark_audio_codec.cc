@@ -173,11 +173,15 @@ SparkAudioCodec::~SparkAudioCodec() {
 void SparkAudioCodec::InitializeI2sTx() {
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan_cfg.auto_clear = true;
+    chan_cfg.dma_desc_num = 12;
+    chan_cfg.dma_frame_num = 512;
     ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &tx_handle_, nullptr));
 
+    // PCM5101 requires standard stereo Philips format (32fs BCK/LRCK ratio)
+    // for its internal PLL to generate a stable, jitter-free system clock.
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG((uint32_t)output_sample_rate_),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk = GPIO_NUM_NC,
             .bclk = BSP_I2S_SCLK,
@@ -195,7 +199,7 @@ void SparkAudioCodec::InitializeI2sTx() {
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_handle_, &std_cfg));
     ESP_ERROR_CHECK(i2s_channel_enable(tx_handle_));
     output_enabled_ = true;
-    ESP_LOGI(TAG, "I2S TX initialized successfully.");
+    ESP_LOGI(TAG, "I2S TX initialized successfully (STEREO 16-bit, %d Hz, 32fs PLL lock).", output_sample_rate_);
 }
 
 void SparkAudioCodec::InitializeI2sRx() {
@@ -368,34 +372,57 @@ int SparkAudioCodec::Read(int16_t* dest, int samples) {
         return samples;
     }
 
-    // High-pass DC-blocking filter for INMP441 MEMS microphone
-    // Eliminates hardware DC bias (~-0x38000000) that causes digital clipping & static noise
-    static int32_t dc_offset = 0;
+    // 1st-order DC-blocking high-pass filter (cutoff ~20Hz at 16kHz, R = 0.992)
+    // Formula: y[n] = x[n] - x[n-1] + R * y[n-1]
+    // Completely strips INMP441 hardware DC offset with 100% linear, transparent vocal passband.
+    static float prev_x = 0.0f;
+    static float prev_y = 0.0f;
     static bool dc_initialized = false;
+    static int telemetry_timer = 0;
+    static float peak_out_sec = 0.0f;
 
     int read_samples = bytes_read / sizeof(int32_t);
     for (int i = 0; i < read_samples; i++) {
         int32_t raw = rx_temp_buf_[i];
         
+        // Convert 24-bit MSB-aligned sample in 32-bit slot to float scale (-32768 .. +32767)
+        float x = (float)raw / 65536.0f;
+        
         if (!dc_initialized) {
-            dc_offset = raw;
+            prev_x = x;
+            prev_y = 0.0f;
             dc_initialized = true;
-        } else {
-            // Smoothly track and subtract DC drift with ~5Hz cutoff at 16kHz
-            dc_offset += (raw - dc_offset) >> 9;
         }
-        
-        int32_t ac = raw - dc_offset;
-        
-        // Convert 24-bit audio in 32-bit container to 16-bit PCM:
-        // >> 15 gives clean, clear voice level without clipping or noise floor amplification
-        int32_t sample = ac >> 15;
-        
-        // Hard saturation clamp to prevent 16-bit integer wrap-around distortion
-        if (sample > 32767) sample = 32767;
-        else if (sample < -32768) sample = -32768;
-        
-        dest[i] = (int16_t)sample;
+
+        // DC-blocking single-pole high-pass filter
+        float y = x - prev_x + 0.992f * prev_y;
+        prev_x = x;
+        prev_y = y;
+
+        // Clean natural speech gain (4.5x):
+        // Ambient noise (~±30) -> ±135 (clean silence floor)
+        // Soft whisper (~±1,200) -> ±5,400 (easily detected by cloud VAD)
+        // Normal speech (~±3,500..5,500) -> ±15,000..24,500 (ideal speech sweet spot)
+        // Loud peaks are smoothly soft-saturated below 32,767 (never square-wave clipping)
+        float out = y * 4.5f;
+        if (fabsf(out) > peak_out_sec) peak_out_sec = fabsf(out);
+
+        // Transparent soft saturation only for extreme loud shouts / direct taps
+        if (out > 28000.0f) {
+            float over = out - 28000.0f;
+            out = 28000.0f + over / (1.0f + over / 4767.0f);
+        } else if (out < -28000.0f) {
+            float over = -out - 28000.0f;
+            out = -(28000.0f + over / (1.0f + over / 4768.0f));
+        }
+
+        dest[i] = (int16_t)out;
+    }
+
+    if (++telemetry_timer >= 125) { // Every ~2 seconds
+        telemetry_timer = 0;
+        ESP_LOGI(TAG, "[Mic CleanAudio] peak=%ld", (long)peak_out_sec);
+        peak_out_sec = 0.0f;
     }
 
     if (read_samples < samples) {
@@ -412,31 +439,52 @@ int SparkAudioCodec::Read(int16_t* dest, int samples) {
     return samples;
 }
 
+bool SparkAudioCodec::IsSpeakerActive() const {
+    int64_t last = last_write_timestamp_us_.load();
+    if (last == 0) return false;
+    return (esp_timer_get_time() - last) < 200000; // Active if audio written within last 200ms
+}
+
 int SparkAudioCodec::Write(const int16_t* data, int samples) {
-    if (!output_enabled_ || !tx_handle_) {
+    if (!output_enabled_ || !tx_handle_ || samples <= 0) {
         return 0;
     }
 
-    // Software volume scaling with 4x gain boost for PCM5101 DAC (GPIO 47)
-    float volume_factor = (Volume / 100.0f) * 4.0f;
-    int16_t* scaled_buf = (int16_t*)malloc(samples * sizeof(int16_t));
-    if (!scaled_buf) return 0;
+    // Record timestamp so CustomWakeWord knows the speaker is active
+    last_write_timestamp_us_.store(esp_timer_get_time());
 
-    for (int i = 0; i < samples; i++) {
-        int32_t val = (int32_t)(data[i] * volume_factor);
-        if (val > 32767) val = 32767;
-        else if (val < -32768) val = -32768;
-        scaled_buf[i] = (int16_t)val;
+    // Clean, natural volume scaling (0.0 to 1.0)
+    // Never overdrive above 1.0 to eliminate digital square-wave clipping and harsh distortion
+    float vol = (float)Volume;
+    if (vol > 100.0f) vol = 100.0f;
+    if (vol < 0.0f) vol = 0.0f;
+    float volume_factor = vol / 100.0f;
+
+    // Process mono samples into stereo frames using member buffer (ZERO bytes stack usage)
+    int total_mono_written = 0;
+
+    for (int offset = 0; offset < samples; offset += TX_CHUNK_MONO_SAMPLES) {
+        int chunk = (samples - offset < TX_CHUNK_MONO_SAMPLES) ? (samples - offset) : TX_CHUNK_MONO_SAMPLES;
+        for (int i = 0; i < chunk; i++) {
+            int32_t val = (int32_t)(data[offset + i] * volume_factor);
+            if (val > 32767) val = 32767;
+            else if (val < -32768) val = -32768;
+            int16_t sample_16 = (int16_t)val;
+
+            // Duplicate mono sample to both Left and Right DAC channels
+            tx_stereo_buf_[i * 2]     = sample_16;
+            tx_stereo_buf_[i * 2 + 1] = sample_16;
+        }
+
+        size_t bytes_to_write = chunk * 2 * sizeof(int16_t);
+        size_t bytes_written = 0;
+        esp_err_t err = i2s_channel_write(tx_handle_, tx_stereo_buf_, bytes_to_write, &bytes_written, portMAX_DELAY);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "I2S write error: %s", esp_err_to_name(err));
+            break;
+        }
+        total_mono_written += (bytes_written / (2 * sizeof(int16_t)));
     }
 
-    size_t bytes_written = 0;
-    esp_err_t err = i2s_channel_write(tx_handle_, scaled_buf, samples * sizeof(int16_t), &bytes_written, portMAX_DELAY);
-    free(scaled_buf);
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "I2S write error: %s", esp_err_to_name(err));
-        return 0;
-    }
-
-    return bytes_written / sizeof(int16_t);
+    return total_mono_written;
 }
