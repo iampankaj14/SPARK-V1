@@ -16,9 +16,43 @@
 #include <esp_log.h>
 #include <arpa/inet.h>
 #include <cJSON.h>
-#include <cstring>
+#include <cctype>
 
 #define TAG "Application"
+
+static bool IsNoiseHallucination(const std::string& text) {
+    std::string s;
+    for (char c : text) {
+        if (std::isalnum((unsigned char)c)) {
+            s += std::tolower((unsigned char)c);
+        }
+    }
+    // If empty or purely punctuation, it's noise
+    if (s.empty()) return true;
+
+    // Direct matches for known Whisper ambient noise / breathing hallucinations
+    const char* kHallucinations[] = {
+        "yeah", "yes", "yea", "yep", "yup",
+        "yeahyeah", "yeahyeahyeah", "ohyeah", "yeahokay", "okayyeah",
+        "okay", "ok", "k", "sure", "right", "alright",
+        "uh", "um", "huh", "uhhuh", "ah", "ha", "hmm", "mm", "mmh", "mmhmm",
+        "you", "thankyou", "thanks", "bye", "goodbye", "hello", "hi"
+    };
+    for (const char* h : kHallucinations) {
+        if (s == h) return true;
+    }
+
+    // Any short utterance (<= 15 letters) containing 'yeah', 'yep', or 'okay'
+    if (s.length() <= 15) {
+        if (s.find("yeah") != std::string::npos ||
+            s.find("yep") != std::string::npos ||
+            s.find("okay") != std::string::npos) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 Application::Application() {
     event_group_ = xEventGroupCreate();
@@ -265,22 +299,27 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
-            // 1. Listening Limit: auto-stop after 15 seconds of listening as fallback if server cloud VAD doesn't close
+            // 1. Listening Limit: auto-stop after timeout as fallback if server cloud VAD doesn't close
             static int listening_ticks = 0;
             if (GetDeviceState() == kDeviceStateListening) {
-                if (++listening_ticks >= 15) {
+                int max_ticks = is_followup_listening_ ? 6 : 15; // 6s wait in follow-up mode, 15s on direct wake word
+                if (++listening_ticks >= max_ticks) {
                     listening_ticks = 0;
-                    ESP_LOGI(TAG, "15s listening limit reached, finalizing recording for server");
+                    ESP_LOGI(TAG, "%ds listening limit reached (followup=%d), returning to standby", max_ticks, is_followup_listening_ ? 1 : 0);
+                    is_followup_listening_ = false;
+                    aborted_ = true;
                     if (protocol_) {
+                        protocol_->SendAbortSpeaking(kAbortReasonNone);
                         protocol_->SendStopListening();
                     }
+                    audio_service_.ResetDecoder();
                     SetDeviceState(kDeviceStateIdle);
                 }
             } else {
                 listening_ticks = 0;
             }
 
-            // 2. Speaking Watchdog: handles clean return to Standby and timeout safety
+            // 2. Speaking Watchdog: handles follow-up listening transition and timeout safety
             static int speaking_idle_ticks = 0;
             if (GetDeviceState() == kDeviceStateSpeaking) {
                 if (audio_service_.IsPlaybackIdle()) {
@@ -289,8 +328,10 @@ void Application::Run() {
                         if (++speaking_idle_ticks >= 2) {
                             speaking_idle_ticks = 0;
                             tts_stopped_ = false;
-                            ESP_LOGI(TAG, "Speech playback complete (tts stop received), returning to standby");
-                            SetDeviceState(kDeviceStateIdle);
+                            ESP_LOGI(TAG, "Speech playback complete, entering follow-up listening mode (waiting for user)");
+                            is_followup_listening_ = true;
+                            play_popup_on_listening_ = false;
+                            SetListeningMode(GetDefaultListeningMode());
                         }
                     } else {
                         // Server is still processing an API / LLM response (e.g. weather, live info, music query)
@@ -298,6 +339,7 @@ void Application::Run() {
                         if (++speaking_idle_ticks >= 10) {
                             speaking_idle_ticks = 0;
                             tts_stopped_ = false;
+                            is_followup_listening_ = false;
                             ESP_LOGW(TAG, "Speech timeout waiting for audio (10s idle), returning to standby");
                             SetDeviceState(kDeviceStateIdle);
                         }
@@ -570,7 +612,7 @@ void Application::InitializeProtocol() {
     });
 
     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
-        if (aborted_) {
+        if (aborted_ || GetDeviceState() == kDeviceStateIdle) {
             return;
         }
         tts_stopped_ = false;
@@ -614,7 +656,9 @@ void Application::InitializeProtocol() {
             }
             if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
-                    aborted_ = false;
+                    if (aborted_ || GetDeviceState() == kDeviceStateIdle) {
+                        return;
+                    }
                     tts_stopped_ = false;
                     SetDeviceState(kDeviceStateSpeaking);
                 });
@@ -633,7 +677,9 @@ void Application::InitializeProtocol() {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
                     Schedule([this, display, message = std::string(text->valuestring),
                               glyphs = std::move(glyphs), bpp]() {
-                        aborted_ = false;
+                        if (aborted_ || GetDeviceState() == kDeviceStateIdle) {
+                            return;
+                        }
                         tts_stopped_ = false;
                         if (GetDeviceState() != kDeviceStateSpeaking) {
                             SetDeviceState(kDeviceStateSpeaking);
@@ -646,6 +692,30 @@ void Application::InitializeProtocol() {
         } else if (strcmp(type->valuestring, "stt") == 0) {
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
+                // If device has already timed out or aborted and returned to Idle, drop late STT!
+                if (aborted_ || GetDeviceState() == kDeviceStateIdle) {
+                    ESP_LOGW(TAG, "Late STT '%s' received while Idle/Aborted -> Ignored", text->valuestring);
+                    return;
+                }
+                // If in follow-up listening mode and STT is a noise hallucination (e.g. "Yeah", "yes", ".")
+                if (is_followup_listening_ && IsNoiseHallucination(text->valuestring)) {
+                    ESP_LOGW(TAG, "Follow-up STT is noise hallucination ('%s') -> Aborting response and returning to Idle", text->valuestring);
+                    is_followup_listening_ = false;
+                    aborted_ = true;
+                    if (protocol_) {
+                        protocol_->SendAbortSpeaking(kAbortReasonNone);
+                        protocol_->SendStopListening();
+                    }
+                    audio_service_.ResetDecoder();
+                    Schedule([this, display]() {
+                        SetDeviceState(kDeviceStateIdle);
+                        display->SetStatus(Lang::Strings::STANDBY);
+                        display->SetEmotion("neutral");
+                    });
+                    return;
+                }
+                is_followup_listening_ = false; // Valid user speech confirmed
+                aborted_ = false;
                 std::vector<TextGlyph> glyphs;
                 uint8_t bpp = 0;
                 if (!TextGlyphPayload::Parse(root, glyphs, bpp)) {
@@ -659,6 +729,9 @@ void Application::InitializeProtocol() {
                 });
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
+            if (aborted_ || GetDeviceState() == kDeviceStateIdle) {
+                return;
+            }
             auto emotion = cJSON_GetObjectItem(root, "emotion");
             if (cJSON_IsString(emotion)) {
                 Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
@@ -923,6 +996,8 @@ void Application::HandleWakeWordDetectedEvent() {
 }
 
 void Application::BeginWakeWordInvoke(const std::string& wake_word) {
+    is_followup_listening_ = false;
+    aborted_ = false;
     // Must run in the main task with the device in idle state
     audio_service_.EncodeWakeWord();
 
@@ -999,6 +1074,7 @@ void Application::HandleStateChangedEvent() {
     switch (new_state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
+            is_followup_listening_ = false;
             display->SetStatus(Lang::Strings::STANDBY);
             display->ClearChatMessages();    // Clear messages first
             display->SetEmotion("neutral");  // Then set emotion (wechat mode checks child count)
@@ -1099,6 +1175,7 @@ void Application::AbortSpeaking(AbortReason reason) {
 
 void Application::SetListeningMode(ListeningMode mode) {
     listening_mode_ = mode;
+    aborted_ = false;
     SetDeviceState(kDeviceStateListening);
 }
 
