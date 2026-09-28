@@ -264,6 +264,8 @@ void CustomWakeWord::OnWakeWordDetected(std::function<void(const std::string& wa
 
 void CustomWakeWord::Start() {
     running_ = true;
+    std::lock_guard<std::mutex> lock(input_buffer_mutex_);
+    input_buffer_.clear();
 }
 
 void CustomWakeWord::Stop() {

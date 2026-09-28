@@ -309,6 +309,16 @@ void AudioService::AudioInputTask() {
             int samples = 160; // 10ms
             std::vector<int16_t> data;
             if (ReadAudioData(data, 16000, samples)) {
+                // Monitor speech vocal energy for real-time turn detection:
+                // Normal speech peaks are 5,000..25,000; ambient noise floor is < 2,500.
+                int16_t max_s = 0;
+                for (int16_t s : data) {
+                    int16_t abs_s = s < 0 ? -s : s;
+                    if (abs_s > max_s) max_s = abs_s;
+                }
+                if (max_s > 3500) {
+                    last_voice_activity_time_ms_.store((uint32_t)(esp_timer_get_time() / 1000), std::memory_order_relaxed);
+                }
                 audio_engine_->Feed(std::move(data));
                 continue;
             }
@@ -669,6 +679,7 @@ void AudioService::EnableVoiceProcessing(bool enable) {
             return;
         }
         ResetDecoder();
+        last_voice_activity_time_ms_.store(0, std::memory_order_relaxed);
         audio_input_need_warmup_ = true;
         {
             std::lock_guard<std::mutex> lock(input_resampler_mutex_);

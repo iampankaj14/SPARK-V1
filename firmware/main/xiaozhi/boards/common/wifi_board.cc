@@ -30,7 +30,7 @@
 static const char *TAG = "WifiBoard";
 
 // Connection timeout in seconds
-static constexpr int CONNECT_TIMEOUT_SEC = 60;
+static constexpr int CONNECT_TIMEOUT_SEC = 15;
 
 WifiBoard::WifiBoard() {
     // Create connection timeout timer
@@ -60,10 +60,11 @@ void WifiBoard::StartNetwork() {
 
     // Initialize WiFi manager
     WifiManagerConfig config;
-    config.ssid_prefix = "Xiaozhi";
+    config.ssid_prefix = "Spark";
     config.language = Lang::CODE;
     config.show_ota_config = true;
     config.show_sleep_config = true;
+    config.station_scan_min_interval_seconds = 2; // Fast 2s station scan interval
 
     // Set a DHCP hostname so the router shows a friendly name instead of "espressif".
     // Uses the same "<prefix>-<last 2 MAC bytes>" scheme as the config AP SSID.
@@ -110,6 +111,7 @@ void WifiBoard::TryWifiConnect() {
     if (have_ssid) {
         // Start connection attempt with timeout
         ESP_LOGI(TAG, "Starting WiFi connection attempt");
+        esp_timer_stop(connect_timer_);
         esp_timer_start_once(connect_timer_, CONNECT_TIMEOUT_SEC * 1000000ULL);
         WifiManager::GetInstance().StartStation();
     } else {
@@ -152,6 +154,10 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             break;
         case NetworkEvent::Disconnected:
             ESP_LOGW(TAG, "WiFi disconnected");
+            if (!in_config_mode_) {
+                esp_timer_stop(connect_timer_);
+                esp_timer_start_once(connect_timer_, CONNECT_TIMEOUT_SEC * 1000000ULL);
+            }
             break;
         case NetworkEvent::WifiConfigModeEnter:
             ESP_LOGI(TAG, "WiFi config mode entered");
@@ -189,24 +195,35 @@ void WifiBoard::StartWifiConfigMode() {
     in_config_mode_ = true;
     // Transition to wifi configuring state
     Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
-#ifdef CONFIG_USE_HOTSPOT_WIFI_PROVISIONING
+#if defined(CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING)
+    auto &blufi = Blufi::GetInstance();
+    // initialize esp-blufi protocol
+    blufi.init();
+#else
     auto& wifi_manager = WifiManager::GetInstance();
-
     wifi_manager.StartConfigAp();
 
     // Show config prompt after a short delay
     Application::GetInstance().Schedule([&wifi_manager]() {
-        std::string hint = Lang::Strings::CONNECT_TO_HOTSPOT;
-        hint += wifi_manager.GetApSsid();
-        hint += Lang::Strings::ACCESS_VIA_BROWSER;
-        hint += wifi_manager.GetApWebUrl();
+        std::string ap_ssid = wifi_manager.GetApSsid();
+        if (ap_ssid.empty()) {
+            ap_ssid = "Spark-Setup";
+        }
+        std::string url = wifi_manager.GetApWebUrl();
+        if (url.empty()) {
+            url = "http://192.168.4.1";
+        }
 
-        Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "gear", Lang::Sounds::OGG_WIFICONFIG);
+        std::string hint = "Hotspot: " + ap_ssid + "\nURL: " + url;
+
+        ESP_LOGI(TAG, "==================================================");
+        ESP_LOGI(TAG, "  🌐 SPARK HOTSPOT CONFIG MODE ACTIVE!");
+        ESP_LOGI(TAG, "  👉 Connect to Wi-Fi: %s", ap_ssid.c_str());
+        ESP_LOGI(TAG, "  👉 Open in Browser:  %s", url.c_str());
+        ESP_LOGI(TAG, "==================================================");
+
+        Application::GetInstance().Alert("WiFi Setup", hint.c_str(), "interest", Lang::Sounds::OGG_WIFICONFIG);
     });
-#elif CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
-    auto &blufi = Blufi::GetInstance();
-    // initialize esp-blufi protocol
-    blufi.init();
 #endif
 }
 

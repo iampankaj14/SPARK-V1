@@ -137,7 +137,16 @@ public:
     void ResetDecoder();
     void SetModelsList(srmodel_list_t* models_list);
 
+    uint32_t GetSilenceDurationMs() const {
+        uint32_t last = last_voice_activity_time_ms_.load(std::memory_order_relaxed);
+        if (last == 0) return 99999;
+        uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+        return (now > last) ? (now - last) : 0;
+    }
+    void ResetVoiceActivity() { last_voice_activity_time_ms_.store(0, std::memory_order_relaxed); }
+
 private:
+    std::atomic<uint32_t> last_voice_activity_time_ms_{0};
     AudioCodec* codec_ = nullptr;
     AudioServiceCallbacks callbacks_;
     std::unique_ptr<AudioEngine> audio_engine_;

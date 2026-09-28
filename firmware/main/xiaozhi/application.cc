@@ -244,6 +244,16 @@ void Application::Run() {
                 pending_listening_start_ = false;
                 StartListeningAudio();
             }
+
+            // If assistant finished speaking and playback has completely drained:
+            if (GetDeviceState() == kDeviceStateSpeaking && tts_stopped_ && audio_service_.IsPlaybackIdle()) {
+                ESP_LOGI(TAG, "Playback drained and TTS stopped -> entering follow-up listening mode");
+                tts_stopped_ = false;
+                has_spoken_audio_ = false;
+                is_followup_listening_ = true;
+                play_popup_on_listening_ = false;
+                SetListeningMode(GetDefaultListeningMode());
+            }
         }
 
         if (bits & MAIN_EVENT_TOGGLE_CHAT) {
@@ -263,8 +273,7 @@ void Application::Run() {
             while (auto packet = audio_service_.PopPacketFromSendQueue()) {
                 if (GetDeviceState() == kDeviceStateListening) {
                     if (protocol_ && !protocol_->SendAudio(std::move(packet))) {
-                        while (audio_service_.PopPacketFromSendQueue())
-                            ;
+                        ESP_LOGW(TAG, "SendAudio failed (TCP busy), will retry on next cycle");
                         break;
                     }
                     if (++sent_pkt_count % 25 == 0) { // Log every 1.5 seconds of streamed voice
@@ -324,11 +333,24 @@ void Application::Run() {
             if (GetDeviceState() == kDeviceStateSpeaking) {
                 if (audio_service_.IsPlaybackIdle()) {
                     if (tts_stopped_) {
-                        // Wait 2 full seconds of idle silence after tts stop to allow multi-sentence streaming
+                        // Playback buffer is idle and server reported tts stop -> enter follow-up listening immediately
+                        if (++speaking_idle_ticks >= 1) {
+                            speaking_idle_ticks = 0;
+                            tts_stopped_ = false;
+                            has_spoken_audio_ = false;
+                            ESP_LOGI(TAG, "Speech playback complete (tts_stopped=true), entering follow-up listening mode");
+                            is_followup_listening_ = true;
+                            play_popup_on_listening_ = false;
+                            SetListeningMode(GetDefaultListeningMode());
+                        }
+                    } else if (has_spoken_audio_) {
+                        // Assistant spoke audio, but server 'stop' was delayed or omitted.
+                        // After 2 seconds of silence, enter follow-up listening mode!
                         if (++speaking_idle_ticks >= 2) {
                             speaking_idle_ticks = 0;
                             tts_stopped_ = false;
-                            ESP_LOGI(TAG, "Speech playback complete, entering follow-up listening mode (waiting for user)");
+                            has_spoken_audio_ = false;
+                            ESP_LOGI(TAG, "Speech playback finished (2s idle after audio), entering follow-up listening mode");
                             is_followup_listening_ = true;
                             play_popup_on_listening_ = false;
                             SetListeningMode(GetDefaultListeningMode());
@@ -339,6 +361,7 @@ void Application::Run() {
                         if (++speaking_idle_ticks >= 10) {
                             speaking_idle_ticks = 0;
                             tts_stopped_ = false;
+                            has_spoken_audio_ = false;
                             is_followup_listening_ = false;
                             ESP_LOGW(TAG, "Speech timeout waiting for audio (10s idle), returning to standby");
                             SetDeviceState(kDeviceStateIdle);
@@ -350,6 +373,7 @@ void Application::Run() {
             } else {
                 speaking_idle_ticks = 0;
                 tts_stopped_ = false;
+                has_spoken_audio_ = false;
             }
 
             // Print debug info every 10 seconds
@@ -612,14 +636,10 @@ void Application::InitializeProtocol() {
     });
 
     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
-        if (aborted_ || GetDeviceState() == kDeviceStateIdle) {
+        if (aborted_ || GetDeviceState() != kDeviceStateSpeaking) {
             return;
         }
-        tts_stopped_ = false;
-        if (GetDeviceState() != kDeviceStateSpeaking) {
-            ESP_LOGI(TAG, "Audio packet received while state=%d; activating Speaking state", (int)GetDeviceState());
-            SetDeviceState(kDeviceStateSpeaking);
-        }
+        has_spoken_audio_ = true;
         audio_service_.PushPacketToDecodeQueue(std::move(packet));
     });
 
@@ -655,18 +675,44 @@ void Application::InitializeProtocol() {
                 return;
             }
             if (strcmp(state->valuestring, "start") == 0) {
+                // Turn Protection: If the user was speaking within the last 650ms,
+                // the server cloud VAD triggered prematurely on a micro-pause!
+                uint32_t silence_ms = audio_service_.GetSilenceDurationMs();
+                if (GetDeviceState() == kDeviceStateListening && silence_ms < 650) {
+                    ESP_LOGW(TAG, "Server premature TTS start while user voice active (silence=%lu ms < 650 ms) -> Aborting server reply and continuing listening", (unsigned long)silence_ms);
+                    if (protocol_) {
+                        protocol_->SendAbortSpeaking(kAbortReasonNone);
+                    }
+                    return;
+                }
                 Schedule([this]() {
-                    if (aborted_ || GetDeviceState() == kDeviceStateIdle) {
+                    if (GetDeviceState() == kDeviceStateIdle) {
                         return;
                     }
+                    aborted_ = false; // New speech turn started
                     tts_stopped_ = false;
+                    has_spoken_audio_ = false;
                     SetDeviceState(kDeviceStateSpeaking);
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
                     tts_stopped_ = true;
+                    // If audio playback has already drained when stop arrives, immediately go to follow-up listening!
+                    if (GetDeviceState() == kDeviceStateSpeaking && audio_service_.IsPlaybackIdle()) {
+                        ESP_LOGI(TAG, "TTS stop received and playback already idle -> entering follow-up listening mode");
+                        tts_stopped_ = false;
+                        has_spoken_audio_ = false;
+                        is_followup_listening_ = true;
+                        play_popup_on_listening_ = false;
+                        SetListeningMode(GetDefaultListeningMode());
+                    }
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
+                uint32_t silence_ms = audio_service_.GetSilenceDurationMs();
+                if (GetDeviceState() == kDeviceStateListening && silence_ms < 650) {
+                    ESP_LOGW(TAG, "Dropping premature sentence_start while user speaking (silence=%lu ms < 650 ms)", (unsigned long)silence_ms);
+                    return;
+                }
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
                     std::vector<TextGlyph> glyphs;
@@ -677,13 +723,10 @@ void Application::InitializeProtocol() {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
                     Schedule([this, display, message = std::string(text->valuestring),
                               glyphs = std::move(glyphs), bpp]() {
-                        if (aborted_ || GetDeviceState() == kDeviceStateIdle) {
+                        if (aborted_ || GetDeviceState() != kDeviceStateSpeaking) {
                             return;
                         }
                         tts_stopped_ = false;
-                        if (GetDeviceState() != kDeviceStateSpeaking) {
-                            SetDeviceState(kDeviceStateSpeaking);
-                        }
                         display->AddTextGlyphs(glyphs, bpp);
                         display->SetChatMessage("assistant", message.c_str());
                     });
@@ -712,6 +755,16 @@ void Application::InitializeProtocol() {
                         display->SetStatus(Lang::Strings::STANDBY);
                         display->SetEmotion("neutral");
                     });
+                    return;
+                }
+                // Turn Protection: If the user was actively speaking within the last 650ms,
+                // this is a premature partial STT (e.g. 'tell') -> abort premature server speech and keep listening!
+                uint32_t silence_ms = audio_service_.GetSilenceDurationMs();
+                if (GetDeviceState() == kDeviceStateListening && silence_ms < 650) {
+                    ESP_LOGW(TAG, "Server sent premature partial STT '%s' while user is still speaking (silence=%lu ms < 650 ms) -> Aborting server speech and keeping listening active", text->valuestring, (unsigned long)silence_ms);
+                    if (protocol_) {
+                        protocol_->SendAbortSpeaking(kAbortReasonNone);
+                    }
                     return;
                 }
                 is_followup_listening_ = false; // Valid user speech confirmed
@@ -971,24 +1024,19 @@ void Application::HandleWakeWordDetectedEvent() {
     if (state == kDeviceStateIdle) {
         BeginWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
+        ESP_LOGI(TAG, "Barge-in / Wake word triggered during state %d; aborting and switching to listening", (int)state);
         AbortSpeaking(kAbortReasonWakeWordDetected);
         audio_service_.ResetDecoder();
         // Clear send queue to avoid sending residues to server
         while (audio_service_.PopPacketFromSendQueue())
             ;
 
-        if (state == kDeviceStateListening) {
+        if (protocol_) {
             protocol_->SendStartListening(GetDefaultListeningMode());
-            // Do NOT play popup sound: without AEC, chime leaks into mic
-            // Re-enable wake word detection as it was stopped by the detection itself
-            audio_service_.EnableWakeWordDetection(true);
-        } else {
-            // Wake word detected during Speaking (music barge-in or assistant speech interruption)
-            ESP_LOGI(TAG, "Barge-in / Wake word triggered during Speaking; switching to listening");
-            // Do NOT play popup sound: without AEC, chime leaks into mic and causes 'Yeah.' hallucination
-            play_popup_on_listening_ = false;
-            SetListeningMode(GetDefaultListeningMode());
         }
+        is_followup_listening_ = false;
+        play_popup_on_listening_ = false;
+        SetListeningMode(GetDefaultListeningMode());
     } else if (state == kDeviceStateActivating) {
         // Restart the activation check if the wake word is detected during activation
         SetDeviceState(kDeviceStateIdle);
@@ -1075,9 +1123,11 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
             is_followup_listening_ = false;
+            tts_stopped_ = false;
+            has_spoken_audio_ = false;
             display->SetStatus(Lang::Strings::STANDBY);
             display->ClearChatMessages();    // Clear messages first
-            display->SetEmotion("neutral");  // Then set emotion (wechat mode checks child count)
+            display->SetEmotion("normal");   // Clean normal cyan face
             audio_service_.EnableVoiceProcessing(false);
             // Clear any lingering audio packets in the send queue to avoid sending stale audio to server
             while (audio_service_.PopPacketFromSendQueue())
@@ -1086,12 +1136,12 @@ void Application::HandleStateChangedEvent() {
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
-            display->SetEmotion("neutral");
+            display->SetEmotion("ooh");      // Thinking / Pondering face with 'O' mouth
             display->SetChatMessage("system", "");
             break;
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
-            display->SetEmotion("neutral");
+            display->SetEmotion("interest"); // Listening face with attentive focused eyes
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
@@ -1110,6 +1160,7 @@ void Application::HandleStateChangedEvent() {
             break;
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
+            display->SetEmotion("happy");    // Speaking face (happy smiling squinting eyes)
 
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_service_.EnableVoiceProcessing(false);
@@ -1168,6 +1219,8 @@ void Application::Schedule(std::function<void()>&& callback) {
 void Application::AbortSpeaking(AbortReason reason) {
     ESP_LOGI(TAG, "Abort speaking");
     aborted_ = true;
+    tts_stopped_ = false;
+    has_spoken_audio_ = false;
     if (protocol_) {
         protocol_->SendAbortSpeaking(reason);
     }
@@ -1175,7 +1228,6 @@ void Application::AbortSpeaking(AbortReason reason) {
 
 void Application::SetListeningMode(ListeningMode mode) {
     listening_mode_ = mode;
-    aborted_ = false;
     SetDeviceState(kDeviceStateListening);
 }
 

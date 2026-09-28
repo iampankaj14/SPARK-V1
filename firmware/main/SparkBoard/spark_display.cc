@@ -43,6 +43,10 @@ void SparkDisplay::SetChatMessage(const char* role, const char* content) {
     Deskimon_SetChatMessage(role, content);
 }
 
+void SparkDisplay::ClearChatMessages() {
+    Deskimon_SetChatMessage("system", "");
+}
+
 void SparkDisplay::UpdateStatusBar(bool update_all) {
     // Spark does not have a status bar, but we can log metrics if needed.
 }

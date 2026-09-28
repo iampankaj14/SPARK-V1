@@ -53,14 +53,12 @@ static volatile bool s_eye_state_pending = false;
 
 static uint32_t press_start_time = 0;
 static bool is_screen_pressed = false;
+static bool s_hold_3s_triggered = false;
+static volatile bool s_is_ai_active = false;
 
-// Status Button & Chat Subtitle UI Objects
-static lv_obj_t * s_status_btn = NULL;
-static lv_obj_t * s_status_label = NULL;
+// Subtitle / STT UI Object (Positioned below eyes)
 static lv_obj_t * s_chat_label = NULL;
-static char s_status_text[64] = "TAP TO TALK";
 static char s_chat_text[256] = "";
-static volatile bool s_status_pending = false;
 static volatile bool s_chat_pending = false;
 
 extern const lv_img_dsc_t boot_logo_image;
@@ -263,26 +261,17 @@ static void logic_timer_cb(lv_timer_t * t)
         set_eyes_state(s_pending_eye_state);
     }
 
-    if (s_status_pending && s_status_label && s_status_btn) {
-        lv_label_set_text(s_status_label, s_status_text);
-        if (strstr(s_status_text, "LISTENING") || strstr(s_status_text, "Listening")) {
-            lv_obj_set_style_border_color(s_status_btn, lv_color_hex(0x00E676), 0);
-            lv_obj_set_style_text_color(s_status_label, lv_color_hex(0x00E676), 0);
-        } else if (strstr(s_status_text, "SPEAKING") || strstr(s_status_text, "Speaking")) {
-            lv_obj_set_style_border_color(s_status_btn, lv_color_hex(0x1AC8DB), 0);
-            lv_obj_set_style_text_color(s_status_label, lv_color_hex(0x1AC8DB), 0);
-        } else if (strstr(s_status_text, "THINKING") || strstr(s_status_text, "Thinking")) {
-            lv_obj_set_style_border_color(s_status_btn, lv_color_hex(0xAB47BC), 0);
-            lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xAB47BC), 0);
-        } else if (strstr(s_status_text, "Error") || strstr(s_status_text, "ERROR")) {
-            lv_obj_set_style_border_color(s_status_btn, lv_color_hex(0xFF5252), 0);
-            lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xFF5252), 0);
-        } else {
-            lv_obj_set_style_border_color(s_status_btn, lv_color_hex(s_eye_color_hex), 0);
-            lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xFFFFFF), 0);
+    // 3-second screen hold to activate listening
+    if (is_screen_pressed && !s_hold_3s_triggered) {
+        uint32_t elapsed = lv_tick_elaps(press_start_time);
+        if (elapsed >= 3000) {
+            s_hold_3s_triggered = true;
+            ESP_LOGI("DESKIMON_UI", ">>> 3 SECONDS SCREEN HOLD DETECTED -> START LISTENING! <<<");
+            set_eyes_state(EYE_STATE_INTEREST);
+            Spark_StartListening();
         }
-        s_status_pending = false;
     }
+
     if (s_chat_pending && s_chat_label) {
         lv_label_set_text(s_chat_label, s_chat_text);
         s_chat_pending = false;
@@ -448,7 +437,15 @@ static void logic_timer_cb(lv_timer_t * t)
         if (ignore_line_r) lv_obj_set_style_line_color(ignore_line_r, color, 0);
     }
 
-    // BLACK_HOLE animation logic removed
+    if (current_state == EYE_STATE_SLEEP) {
+        // Peaceful rhythmic breathing: gently expand and contract sleepy eye slits
+        if (state_time > 0 && state_time % 2000 == 0) {
+            int target_h = (state_time % 4000 == 0) ? 30 : 20;
+            Spark_Anim_Prop(eye_container_l, Spark_Anim_SetHeightCb, lv_obj_get_height(eye_container_l), target_h, 900);
+            Spark_Anim_Prop(eye_container_r, Spark_Anim_SetHeightCb, lv_obj_get_height(eye_container_r), target_h, 900);
+        }
+    }
+
     if (current_state == EYE_STATE_EYES_CLOSED) {
         if (state_time > 0 && state_time % 200 == 0) {
             int offset_x = (rand() % 16) - 8; // Rapid X shaking
@@ -517,7 +514,6 @@ static void logic_timer_cb(lv_timer_t * t)
             }
             if (eye_container_l) lv_obj_add_flag(eye_container_l, LV_OBJ_FLAG_HIDDEN);
             if (eye_container_r) lv_obj_add_flag(eye_container_r, LV_OBJ_FLAG_HIDDEN);
-            if (s_status_btn) lv_obj_add_flag(s_status_btn, LV_OBJ_FLAG_HIDDEN);
             if (s_chat_label) lv_obj_add_flag(s_chat_label, LV_OBJ_FLAG_HIDDEN);
         }
         // Phase 2: At 1500ms -> Delete boot logo image and transition to NORMAL active UI
@@ -529,10 +525,6 @@ static void logic_timer_cb(lv_timer_t * t)
             }
             if (eye_container_l) lv_obj_clear_flag(eye_container_l, LV_OBJ_FLAG_HIDDEN);
             if (eye_container_r) lv_obj_clear_flag(eye_container_r, LV_OBJ_FLAG_HIDDEN);
-            if (s_status_btn) {
-                lv_obj_clear_flag(s_status_btn, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_move_foreground(s_status_btn);
-            }
             if (s_chat_label) {
                 lv_obj_clear_flag(s_chat_label, LV_OBJ_FLAG_HIDDEN);
                 lv_obj_move_foreground(s_chat_label);
@@ -556,9 +548,9 @@ static void logic_timer_cb(lv_timer_t * t)
     bool shaking = (move_amt > 1.5f);
     bool shaking_x = (dx*dx > 1.0f); 
 
-    // Skip IMU interruptions if we are in a special cinematic face like SOLAR_SYSTEM or PORTAL_TRAVEL
-    if (current_state == (eye_state_t)SPARK_FACE_SOLAR_SYSTEM || current_state == (eye_state_t)SPARK_FACE_PORTAL_TRAVEL) {
-        // Do not interrupt the cinematic face with tilt/shake
+    // Skip IMU interruptions if in active AI conversation or special cinematic face
+    if (s_is_ai_active || current_state == (eye_state_t)SPARK_FACE_PORTAL_TRAVEL) {
+        // Do not interrupt active voice conversation or cinematic face with tilt/shake
     }
     else if (tilted_up) {
         idle_time = 0;
@@ -597,82 +589,88 @@ static void logic_timer_cb(lv_timer_t * t)
         }
     }
 
-    if (current_state == EYE_STATE_NORMAL) {
-        if (idle_time > 20000) {
-            set_eyes_state(EYE_STATE_BORING);
-        } else if (state_time >= next_look_time) {
-            int32_t rx = (rand() % 100) - 50;
-            int32_t ry = (rand() % 60) - 30;
-            uint32_t speed = (rand() % 400) + 200;
-            Spark_Anim_AnimateEyeBase(eye_container_l, 100, 165, 0, rx, ry, speed);
-            Spark_Anim_AnimateEyeBase(eye_container_r, 100, 165, 0, rx, ry, speed);
-            next_look_time = state_time + speed + (rand() % 3000) + 1000;
+    if (!s_is_ai_active) {
+        if (current_state == EYE_STATE_NORMAL) {
+            if (idle_time > 20000) {
+                set_eyes_state(EYE_STATE_BORING);
+            } else if (state_time >= next_look_time) {
+                int32_t rx = (rand() % 100) - 50;
+                int32_t ry = (rand() % 60) - 30;
+                uint32_t speed = (rand() % 400) + 200;
+                Spark_Anim_AnimateEyeBase(eye_container_l, 100, 165, 0, rx, ry, speed);
+                Spark_Anim_AnimateEyeBase(eye_container_r, 100, 165, 0, rx, ry, speed);
+                next_look_time = state_time + speed + (rand() % 3000) + 1000;
+            }
         }
-    }
-    else if (current_state == EYE_STATE_BORING) {
-        if (state_time > 4500) set_eyes_state(EYE_STATE_BORED);
-    }
-    else if (current_state == EYE_STATE_BORED) {
-        // After 40s of boredom -> Solar System screensaver (as user requested!)
-        if (idle_time > 40000) set_eyes_state((eye_state_t)SPARK_FACE_SOLAR_SYSTEM);
-    }
-    else if (current_state == (eye_state_t)SPARK_FACE_SOLAR_SYSTEM) {
-        // Any slight movement wakes it from screensaver
-        if (move_amt > 0.08f) {
-            idle_time = 0;
-            set_eyes_state(EYE_STATE_CHILL);
+        else if (current_state == EYE_STATE_BORING) {
+            if (state_time > 4500) set_eyes_state(EYE_STATE_BORED);
         }
-        // After 30s of screensaver -> go to sleep
-        else if (state_time > 30000) {
-            set_eyes_state(EYE_STATE_SLEEP);
+        else if (current_state == EYE_STATE_BORED) {
+            // After ~12s of droopy bored eyes (or 35s total idle) -> transition directly to peaceful SLEEP!
+            // Screen is NEVER blank, face stays continuously visible and alive!
+            if (state_time > 12000 || idle_time > 35000) {
+                set_eyes_state(EYE_STATE_SLEEP);
+            }
         }
-    }
-    else if (current_state == EYE_STATE_SLEEP) {
-        if (state_time > 10000) set_eyes_state(EYE_STATE_EYES_CLOSED);
-    }
-    else if (current_state == (eye_state_t)SPARK_FACE_PORTAL_TRAVEL) {
-        // Portal Travel during normal idle: show for 8s then return to normal
-        if (move_amt > 0.08f) {
-            // Any movement interrupts portal travel
-            idle_time = 0;
-            set_eyes_state(EYE_STATE_NORMAL);
-        } else if (state_time > 8000) {
-            set_eyes_state(EYE_STATE_NORMAL);
+        else if (current_state == EYE_STATE_SLEEP) {
+            // Stays peacefully asleep with continuous gentle breathing animation!
+            // Any movement or tap will wake it up
         }
-    }
-    else if (current_state == EYE_STATE_HAPPY || current_state == EYE_STATE_CRY || current_state == EYE_STATE_IGNORE) {
-        if (state_time > 3500) set_eyes_state(EYE_STATE_NORMAL);
-    }
-    else if (current_state == EYE_STATE_BLUSH) {
-        // Blush -> Love after 2s (when LOVE intent triggered)
-        if (state_time > 2000) set_eyes_state(EYE_STATE_LOVE);
-    }
-    else if (current_state == EYE_STATE_LOVE) {
-        // Love face stays for 3s then returns to normal
-        if (state_time > 3000) set_eyes_state(EYE_STATE_NORMAL);
-    }
-    else if (current_state == EYE_STATE_HAPPY_CRY) {
-        if (state_time > 3500) set_eyes_state(EYE_STATE_HAPPY); // Comforted -> transitions to happy first!
-    }
-    else if (current_state == EYE_STATE_WTF) {
-        if (state_time > 2500) set_eyes_state(EYE_STATE_INTEREST); // Shocked -> curious recovery!
-    }
-    else if (current_state == EYE_STATE_CHILL || current_state == EYE_STATE_INSECURE || current_state == EYE_STATE_INTEREST || current_state == EYE_STATE_OOH || current_state == EYE_STATE_LAUGH) {
-        if (state_time > 2500) set_eyes_state(EYE_STATE_NORMAL);
-    }
-    else if (current_state == EYE_STATE_ANGRY) {
-        // After being put down: 2.5s of Angry (red eyes) -> Laugh (can't stay mad!)
-        // Normal angry (from shake/tap): 5s -> Insecure
-        if (state_time > 2500 && state_time <= 5000) {
-            set_eyes_state(EYE_STATE_LAUGH);
-        } else if (state_time > 5000) {
-            set_eyes_state(EYE_STATE_INSECURE);
+        else if (current_state == (eye_state_t)SPARK_FACE_PORTAL_TRAVEL) {
+            // Portal Travel during normal idle: show for 8s then return to normal
+            if (move_amt > 0.08f) {
+                // Any movement interrupts portal travel
+                idle_time = 0;
+                set_eyes_state(EYE_STATE_NORMAL);
+            } else if (state_time > 8000) {
+                set_eyes_state(EYE_STATE_NORMAL);
+            }
         }
-    }
-    else if (current_state == EYE_STATE_CRYING_MOUTH) {
-        if (state_time > 4500) {
-            if (!shaking && !tilted_up) set_eyes_state(EYE_STATE_NORMAL);
-            else if (!shaking && tilted_up) set_eyes_state(EYE_STATE_CRY);
+        else if (current_state == EYE_STATE_HAPPY || current_state == EYE_STATE_CRY || current_state == EYE_STATE_IGNORE) {
+            if (state_time > 3500) set_eyes_state(EYE_STATE_NORMAL);
+        }
+        else if (current_state == EYE_STATE_BLUSH) {
+            // Blush -> Love after 2s (when LOVE intent triggered)
+            if (state_time > 2000) set_eyes_state(EYE_STATE_LOVE);
+        }
+        else if (current_state == EYE_STATE_LOVE) {
+            // Love face stays for 3s then returns to normal
+            if (state_time > 3000) set_eyes_state(EYE_STATE_NORMAL);
+        }
+        else if (current_state == EYE_STATE_HAPPY_CRY) {
+            if (state_time > 3500) set_eyes_state(EYE_STATE_HAPPY); // Comforted -> transitions to happy first!
+        }
+        else if (current_state == EYE_STATE_WTF) {
+            if (state_time > 2500) set_eyes_state(EYE_STATE_INTEREST); // Shocked -> curious recovery!
+        }
+        else if (current_state == EYE_STATE_CHILL || current_state == EYE_STATE_INSECURE || current_state == EYE_STATE_INTEREST || current_state == EYE_STATE_OOH || current_state == EYE_STATE_LAUGH) {
+            if (state_time > 2500) set_eyes_state(EYE_STATE_NORMAL);
+        }
+        else if (current_state == EYE_STATE_ANGRY) {
+            // After being put down: 2.5s of Angry (red eyes) -> Laugh (can't stay mad!)
+            // Normal angry (from shake/tap): 5s -> Insecure
+            if (state_time > 2500 && state_time <= 5000) {
+                set_eyes_state(EYE_STATE_LAUGH);
+            } else if (state_time > 5000) {
+                set_eyes_state(EYE_STATE_INSECURE);
+            }
+        }
+        else if (current_state == EYE_STATE_CRYING_MOUTH) {
+            if (state_time > 4500) {
+                if (!shaking && !tilted_up) set_eyes_state(EYE_STATE_NORMAL);
+                else if (!shaking && tilted_up) set_eyes_state(EYE_STATE_CRY);
+            }
+        }
+    } else {
+        // While in active AI interaction:
+        idle_time = 0;
+        if (current_state == EYE_STATE_HAPPY) {
+            // Animated talking eyes rhythm while speaking
+            if (state_time > 0 && state_time % 300 == 0) {
+                int bounce_y = (state_time % 600 == 0) ? -4 : 4;
+                Spark_Anim_Prop(eye_container_l, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(eye_container_l, 0), bounce_y, 150);
+                Spark_Anim_Prop(eye_container_r, Spark_Anim_SetTyCb, lv_obj_get_style_translate_y(eye_container_r, 0), bounce_y, 150);
+            }
         }
     }
 
@@ -696,9 +694,19 @@ static void screen_event_cb(lv_event_t * e) {
     if (code == LV_EVENT_PRESSED) {
         press_start_time = lv_tick_get();
         is_screen_pressed = true;
+        s_hold_3s_triggered = false;
         idle_time = 0;
-        
-        uint32_t now = lv_tick_get();
+    }
+    else if (code == LV_EVENT_RELEASED) {
+        is_screen_pressed = false;
+        if (s_hold_3s_triggered) {
+            s_hold_3s_triggered = false;
+            return;
+        }
+
+        uint32_t duration = lv_tick_elaps(press_start_time);
+        if (duration < 700) {
+            uint32_t now = lv_tick_get();
             if (now - last_tap_time < 600) tap_count++;
             else tap_count = 1;
             last_tap_time = now;
@@ -729,28 +737,11 @@ static void screen_event_cb(lv_event_t * e) {
                     set_eyes_state(EYE_STATE_HAPPY);
                 }
             }
-    }
-    else if (code == LV_EVENT_LONG_PRESSED) {
-        ESP_LOGI("LATENCY_AUDIT", "[LATENCY] Long Press: %lld ms", esp_timer_get_time() / 1000);
-        ESP_LOGI("MIC_SOURCE_AUDIT", ">>> [TAP-TO-TALK] SCREEN LONG-PRESS TRIGGERED! <<<");
-        ESP_LOGI("MIC_SOURCE_AUDIT", "Active Mic: EXTERNAL INMP441 (Pins: SD=GPIO3, SCK=GPIO13, WS=GPIO12)");
-        ESP_LOGI("MIC_SOURCE_AUDIT", "Onboard MSM261 (GPIO39/15/2): 100%% INACTIVE & UNCONNECTED TO I2S");
-        Spark_StartListening();
-    }
-    else if (code == LV_EVENT_RELEASED) {
-        is_screen_pressed = false;
+        }
     }
 }
 
-static void status_btn_click_cb(lv_event_t * e) {
-    ESP_LOGI("MIC_SOURCE_AUDIT", "=================================================================");
-    ESP_LOGI("MIC_SOURCE_AUDIT", ">>> [TAP-TO-TALK] ON-SCREEN BUTTON CLICKED BY USER! <<<");
-    ESP_LOGI("MIC_SOURCE_AUDIT", "Active Audio Source: EXTERNAL INMP441 MEMS MICROPHONE");
-    ESP_LOGI("MIC_SOURCE_AUDIT", "Physical Pins: DIN=GPIO3 (Pin 8), BCLK=GPIO13 (Pin 1), WS=GPIO12 (Pin 3)");
-    ESP_LOGI("MIC_SOURCE_AUDIT", "Onboard Mic (MSM261 on GPIO39/15/2): TOTALLY DISABLED & UNREAD");
-    ESP_LOGI("MIC_SOURCE_AUDIT", "=================================================================");
-    Spark_StartListening();
-}
+
 
 static void create_eye_masks(lv_obj_t * eye, lv_obj_t ** top_mask, lv_obj_t ** moon_mask) {
     *top_mask = lv_obj_create(eye);
@@ -1310,35 +1301,15 @@ void Deskimon_Start(void)
 
     // BLACK HOLE ANIMATION
 
-    // STATUS / TAP-TO-TALK BUTTON (Bottom Pill)
-    s_status_btn = lv_btn_create(scr);
-    lv_obj_remove_style_all(s_status_btn);
-    lv_obj_set_size(s_status_btn, 190, 36);
-    lv_obj_set_style_radius(s_status_btn, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_status_btn, lv_color_hex(0x101320), 0);
-    lv_obj_set_style_bg_opa(s_status_btn, LV_OPA_80, 0);
-    lv_obj_set_style_border_width(s_status_btn, 2, 0);
-    lv_obj_set_style_border_color(s_status_btn, lv_color_hex(s_eye_color_hex), 0);
-    lv_obj_set_style_border_opa(s_status_btn, LV_OPA_80, 0);
-    lv_obj_align(s_status_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
-    lv_obj_add_event_cb(s_status_btn, status_btn_click_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_clear_flag(s_status_btn, LV_OBJ_FLAG_HIDDEN); // Make TAP TO TALK button visible immediately
-
-    s_status_label = lv_label_create(s_status_btn);
-    lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
-    lv_label_set_text(s_status_label, "TAP TO TALK");
-    lv_obj_align(s_status_label, LV_ALIGN_CENTER, 0, 0);
-
-    // CHAT / TRANSCRIPT SUBTITLE LABEL (Top / Subtitle)
+    // CHAT / TRANSCRIPT SUBTITLE LABEL (Positioned below eyes at bottom of screen)
     s_chat_label = lv_label_create(scr);
     lv_obj_set_style_text_color(s_chat_label, lv_color_hex(0xE0F7FA), 0);
     lv_obj_set_style_text_font(s_chat_label, &lv_font_montserrat_14, 0);
     lv_label_set_long_mode(s_chat_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(s_chat_label, 340);
+    lv_obj_set_width(s_chat_label, 280);
     lv_obj_set_style_text_align(s_chat_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_chat_label, "");
-    lv_obj_align(s_chat_label, LV_ALIGN_TOP_MID, 0, 24);
+    lv_obj_align(s_chat_label, LV_ALIGN_BOTTOM_MID, 0, -25);
     lv_obj_clear_flag(s_chat_label, LV_OBJ_FLAG_HIDDEN); // Visible
 
     logic_timer = lv_timer_create(logic_timer_cb, 100, NULL);
@@ -1352,29 +1323,40 @@ void Deskimon_SetEyeColor(uint32_t color_hex)
 
 void Deskimon_SetEmotion(const char* emotion)
 {
+    if (!emotion) return;
     eye_state_t state = EYE_STATE_NORMAL;
-    if (strcmp(emotion, "happy") == 0) {
+    if (strcmp(emotion, "happy") == 0 || strcmp(emotion, "speaking") == 0) {
         state = EYE_STATE_HAPPY;
     } else if (strcmp(emotion, "angry") == 0) {
         state = EYE_STATE_ANGRY;
-    } else if (strcmp(emotion, "sleepy") == 0) {
+    } else if (strcmp(emotion, "sleepy") == 0 || strcmp(emotion, "sleep") == 0 || strcmp(emotion, "tired") == 0) {
         state = EYE_STATE_SLEEP;
-    } else if (strcmp(emotion, "crying") == 0 || strcmp(emotion, "cry") == 0) {
+    } else if (strcmp(emotion, "crying") == 0 || strcmp(emotion, "cry") == 0 || strcmp(emotion, "sad") == 0) {
         state = EYE_STATE_CRY;
+    } else if (strcmp(emotion, "crying_mouth") == 0 || strcmp(emotion, "sorrow") == 0) {
+        state = EYE_STATE_CRYING_MOUTH;
+    } else if (strcmp(emotion, "happy_cry") == 0 || strcmp(emotion, "moved") == 0) {
+        state = EYE_STATE_HAPPY_CRY;
     } else if (strcmp(emotion, "interest") == 0 || strcmp(emotion, "listening") == 0) {
         state = EYE_STATE_INTEREST;
-    } else if (strcmp(emotion, "ooh") == 0) {
+    } else if (strcmp(emotion, "ooh") == 0 || strcmp(emotion, "thinking") == 0 || strcmp(emotion, "wonder") == 0) {
         state = EYE_STATE_OOH;
-    } else if (strcmp(emotion, "wtf") == 0) {
+    } else if (strcmp(emotion, "wtf") == 0 || strcmp(emotion, "surprised") == 0 || strcmp(emotion, "shocked") == 0) {
         state = EYE_STATE_WTF;
-    } else if (strcmp(emotion, "laugh") == 0) {
+    } else if (strcmp(emotion, "laugh") == 0 || strcmp(emotion, "funny") == 0 || strcmp(emotion, "joke") == 0) {
         state = EYE_STATE_LAUGH;
     } else if (strcmp(emotion, "bored") == 0) {
         state = EYE_STATE_BORED;
-    } else if (strcmp(emotion, "blush") == 0) {
+    } else if (strcmp(emotion, "boring") == 0 || strcmp(emotion, "yawn") == 0) {
+        state = EYE_STATE_BORING;
+    } else if (strcmp(emotion, "blush") == 0 || strcmp(emotion, "love") == 0 || strcmp(emotion, "shy") == 0) {
         state = EYE_STATE_BLUSH;
-    } else if (strcmp(emotion, "chill") == 0) {
+    } else if (strcmp(emotion, "chill") == 0 || strcmp(emotion, "relaxed") == 0) {
         state = EYE_STATE_CHILL;
+    } else if (strcmp(emotion, "insecure") == 0) {
+        state = EYE_STATE_INSECURE;
+    } else if (strcmp(emotion, "normal") == 0 || strcmp(emotion, "neutral") == 0 || strcmp(emotion, "standby") == 0 || strcmp(emotion, "idle") == 0) {
+        state = EYE_STATE_NORMAL;
     }
     s_pending_eye_state = state;
     s_eye_state_pending = true;
@@ -1385,20 +1367,26 @@ void Deskimon_SetStatus(const char* status)
     if (!status) return;
 
     if (strstr(status, "Standby") || strstr(status, "STANDBY") || strstr(status, "Idle") || strstr(status, "idle")) {
-        strncpy(s_status_text, "TAP TO TALK", sizeof(s_status_text) - 1);
+        s_is_ai_active = false;
         Deskimon_SetEmotion("normal");
-    } else {
-        strncpy(s_status_text, status, sizeof(s_status_text) - 1);
-        if (strstr(status, "Listening") || strstr(status, "LISTENING")) {
-            Deskimon_SetEmotion("interest");
-        } else if (strstr(status, "Thinking") || strstr(status, "THINKING")) {
-            Deskimon_SetEmotion("ooh");
-        } else if (strstr(status, "Speaking") || strstr(status, "SPEAKING")) {
+    } else if (strstr(status, "Listening") || strstr(status, "LISTENING")) {
+        s_is_ai_active = true;
+        idle_time = 0;
+        Deskimon_SetEmotion("interest");
+    } else if (strstr(status, "Thinking") || strstr(status, "THINKING") || strstr(status, "Connecting") || strstr(status, "CONNECTING")) {
+        s_is_ai_active = true;
+        idle_time = 0;
+        Deskimon_SetEmotion("ooh");
+    } else if (strstr(status, "Speaking") || strstr(status, "SPEAKING")) {
+        s_is_ai_active = true;
+        idle_time = 0;
+        // Retain specific emotional reactions if server set angry/cry/laugh/blush/wtf
+        if (current_state != EYE_STATE_ANGRY && current_state != EYE_STATE_CRY && 
+            current_state != EYE_STATE_CRYING_MOUTH && current_state != EYE_STATE_LAUGH &&
+            current_state != EYE_STATE_WTF && current_state != EYE_STATE_BLUSH) {
             Deskimon_SetEmotion("happy");
         }
     }
-    s_status_text[sizeof(s_status_text) - 1] = '\0';
-    s_status_pending = true;
 }
 
 void Deskimon_SetChatMessage(const char* role, const char* content)
