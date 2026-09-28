@@ -134,12 +134,12 @@ void AudioService::Start() {
         vTaskDelete(NULL);
     }, "audio_input", 2048 * 3, this, 7, &audio_input_task_handle_, 0);
 
-    /* Start the audio output task (lower than input; I2S DMA buffers absorb scheduling jitter) */
-    xTaskCreate([](void* arg) {
+    /* Start the audio output task (pinned to Core 0 alongside audio_input; I2S DMA buffers absorb scheduling jitter) */
+    xTaskCreatePinnedToCore([](void* arg) {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->AudioOutputTask();
         vTaskDelete(NULL);
-    }, "audio_output", 2048 * 2, this, 4, &audio_output_task_handle_);
+    }, "audio_output", 2048 * 2, this, 4, &audio_output_task_handle_, 0);
 #else
     /* Start the audio input task */
     xTaskCreate([](void* arg) {
@@ -148,12 +148,12 @@ void AudioService::Start() {
         vTaskDelete(NULL);
     }, "audio_input", 2048 * 2, this, 7, &audio_input_task_handle_);
 
-    /* Start the audio output task (lower than input; I2S DMA buffers absorb scheduling jitter) */
-    xTaskCreate([](void* arg) {
+    /* Start the audio output task (pinned to Core 0) */
+    xTaskCreatePinnedToCore([](void* arg) {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->AudioOutputTask();
         vTaskDelete(NULL);
-    }, "audio_output", 2048 * 2, this, 4, &audio_output_task_handle_);
+    }, "audio_output", 2048 * 2, this, 4, &audio_output_task_handle_, 0);
 #endif
 
     /* Start the opus codec task (priority 6: runs above UI & background tasks to guarantee zero frame drops) */

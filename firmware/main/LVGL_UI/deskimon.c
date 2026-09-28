@@ -228,6 +228,14 @@ static void eye_container_event_cb(lv_event_t * e) {
 
 static void set_eyes_state(eye_state_t new_state) {
     if (new_state == current_state) return;
+
+    // Smart Backlight Power Saving: Auto-dim to 25% in SLEEP, restore to 70% upon waking
+    if (new_state == EYE_STATE_SLEEP) {
+        Set_Backlight(25);
+    } else if (current_state == EYE_STATE_SLEEP) {
+        Set_Backlight(70);
+    }
+
     current_state = new_state;
     state_time = 0;
     Spark_Face_Set((spark_face_t)new_state);
@@ -536,8 +544,7 @@ static void logic_timer_cb(lv_timer_t * t)
 
 
 
-    // Check Accelerometer
-    getAccelerometer();
+    // Check Accelerometer (already continuously updated thread-safely by Driver_Loop)
     float dx = Accel.x - last_accel_x;
     float dy = Accel.y - last_accel_y;
     float dz = Accel.z - last_accel_z;

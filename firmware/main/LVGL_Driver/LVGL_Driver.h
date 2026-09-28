@@ -10,7 +10,7 @@
 
 #include "Display_SPD2010.h"
 
-#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * 16)
+#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * 32)
 #define EXAMPLE_LVGL_TICK_PERIOD_MS    2
 
 #ifdef __cplusplus
